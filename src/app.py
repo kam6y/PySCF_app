@@ -51,27 +51,23 @@ def save_xyz_file(atoms, coords, filename='molecule.xyz'):
             f.write(f"{atom} {coords[i][0]:.6f} {coords[i][1]:.6f} {coords[i][2]:.6f}\n")
     return filepath
 
-def debug_print_mol_info(mol):
-    print('--- Molecule Info ---')
-    print('Atoms:', mol.atom)
-    print('Charge:', mol.charge)
-    print('Spin:', mol.spin)
-    print('Number of electrons:', mol.nelectron)
-    print('Basis:', mol.basis)
-    print('---------------------')
-
 def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin):
     from pyscf import geomopt
+    conv_params = {
+        'convergence_energy': 1e-6,  # エネルギーの収束閾値 (Eh)
+        'convergence_grms': 3e-4,    # 勾配のRMS収束閾値 (Eh/Bohr)
+        'convergence_gmax': 4.5e-4,  # 最大勾配の収束閾値 (Eh/Bohr)
+        'convergence_drms': 1.2e-3,  # 変位のRMS収束閾値 (Angstrom)
+        'convergence_dmax': 1.8e-3   # 最大変位の収束閾値 (Angstrom)
+    }
     mol_input = []
     for i, atom in enumerate(atoms):
         mol_input.append([atom, coords[i].tolist()])
     mol = gto.M(atom=mol_input, basis=basis, charge=charge, spin=spin)
-    debug_print_mol_info(mol)
     mf = dft.RKS(mol)
     mf.xc = xc_functional
     # SCFオブジェクトを渡して最適化
-    mol_opt = geomopt.optimize(mf)
-    debug_print_mol_info(mol_opt)
+    mol_opt = geomopt.optimize(mf, conv_params=conv_params)
     mf_opt = dft.RKS(mol_opt)
     mf_opt.xc = xc_functional
     mf_opt.verbose = 0
@@ -164,8 +160,65 @@ def plot_mo_energies_plotly(orbital_energies, homo_idx, gap=None):
     )
     return fig
 
+def run_and_plot_ir_spectrum(mf_opt, mol, atoms):
+    """
+    IRスペクトルの計算・描画・ピーク表生成を行い、結果を辞書で返す。
+    エラー時は'detail'にエラーメッセージを格納。
+    """
+    from pyscf.prop import infrared
+    from pyscf.hessian import thermo
+    import io
+    import base64
+    import matplotlib.pyplot as plt
+    import sys
+    result = {}
+    try:
+        mf_ir = infrared.rks.Infrared(mf_opt).run()
+        sys_stdout = sys.stdout
+        thermo_text = io.StringIO()
+        sys.stdout = thermo_text
+        try:
+            thermo.dump_thermo(mol, thermo.thermo(mf_opt, mf_ir.vib_dict["freq_au"], 298.15, 101325))
+        except Exception:
+            pass
+        sys.stdout = sys_stdout
+        result['thermo_text'] = thermo_text.getvalue()
+        # 振動数のスケーリングファクターとして0.960を適用
+        fig, ax, ax2 = mf_ir.plot_ir(w=100, scale=0.960)
+        ax.set_title("Infrared Spectrum (B3LYP, scale=0.960, FWHM=100 cm$^{-1}$)")
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png')
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.read()).decode()
+        plt.close(fig)
+        result['img_base64'] = img_base64
+        # IRピークと振動モードの対応表
+        freq = mf_ir.vib_dict.get("freq_wavenumber")  # cm^-1
+        intensity = getattr(mf_ir, "ir_inten", None)  # IR強度 (km/mol)
+        normal_modes = mf_ir.vib_dict.get("norm_mode")
+        if freq is not None and intensity is not None and normal_modes is not None:
+            mode_info = []
+            for idx in range(len(freq)):
+                mode_info.append({
+                    '周波数 (cm⁻¹)': f"{freq[idx]:.1f}",
+                    '強度 (km/mol)': f"{intensity[idx]:.1f}",
+                })
+            import pandas as pd
+            mode_df = pd.DataFrame(mode_info)
+            result['mode_df'] = mode_df
+        else:
+            result['mode_df'] = None
+        result['detail'] = None
+    except Exception as e:
+        result['detail'] = str(e)
+    return result
+
 st.set_page_config(page_title="分子構造DFT計算", layout="wide")
 st.title('分子構造DFT計算')
+st.markdown("主に PySCF と Streamlit を使用")
+st.markdown("計算時間と精度は選択した計算設定に依存します。かなり弱いCPUで計算しているので計算設定がリッチだと計算が終わらずにエラーを吐く場合があります。")
+st.markdown("---")
 
 # --- セッションステート初期化 ---
 if 'xyz_string' not in st.session_state:
@@ -342,45 +395,18 @@ if st.session_state['xyz_string']:
 </span>''',
                 unsafe_allow_html=True
             )
-            from pyscf.prop import infrared
-            from pyscf.hessian import thermo
-            import io
-            import base64
-            import matplotlib.pyplot as plt
-            import sys
-            try:
-                mf_ir = infrared.rks.Infrared(result['mf_opt']).run()
-                buf = io.StringIO()
-                sys_stdout = sys.stdout
-                sys.stdout = buf
-                mf_ir.summary()
-                sys.stdout = sys_stdout
-                st.text(buf.getvalue())
-                thermo_text = io.StringIO()
-                sys_stdout = sys.stdout
-                sys.stdout = thermo_text
-                try:
-                    thermo.dump_thermo(result['mf_opt'].mol, thermo.thermo(result['mf_opt'], mf_ir.vib_dict["freq_au"], 298.15, 101325))
-                except Exception as e:
-                    print('DEBUG: thermo error:', e)
-                sys.stdout = sys_stdout
-                st.text(thermo_text.getvalue())
-                fig, ax, ax2 = mf_ir.plot_ir(w=100, scale=0.960)
-                ax.set_title("Infrared Spectrum (B3LYP, scale=0.960, FWHM=100 cm$^{-1}$)")
-                fig.tight_layout()
-                buf = io.BytesIO()
-                fig.savefig(buf, format='png')
-                buf.seek(0)
-                img_base64 = base64.b64encode(buf.read()).decode()
-                st.image(f"data:image/png;base64,{img_base64}")
-                plt.close(fig)
-            except Exception as e:
-                st.error(f'IRスペクトル計算中にエラーが発生しました: {e}')
+            ir_result = run_and_plot_ir_spectrum(result['mf_opt'], result['mol'], atoms)
+            if ir_result['detail']:
+                st.error(f'IRスペクトル計算中にエラーが発生しました: {ir_result["detail"]}')
+            else:
+                st.text(ir_result['thermo_text'])
+                st.image(f"data:image/png;base64,{ir_result['img_base64']}")
+                st.markdown('主なIRピークと振動モードの対応')
+                if ir_result['mode_df'] is not None:
+                    st.dataframe(ir_result['mode_df'], use_container_width=True, height=350)
+                else:
+                    st.warning("IRスペクトルの詳細データ取得に失敗しました。")
     else:
         st.info('有効な分子構造を入力してください。')
 else:
     st.info('有効な分子構造をサイドバーから入力してください。')
-
-st.markdown("---")
-st.markdown("**分子構造DFT計算アプリ** - PySCF と Streamlit を使用")
-st.markdown("計算時間と精度は選択した基底関数セットと分子サイズに依存します。")
