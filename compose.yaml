@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  molecular-dft-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: molecular-dft-app
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
