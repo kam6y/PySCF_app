@@ -245,12 +245,20 @@ if st.session_state['xyz_string']:
         view.setStyle({'stick': {}})
         view.zoomTo()
         st.components.v1.html(view._make_html(), height=420)
+        # --- DFT計算結果をセッションに保存し、ダウンロードボタンは常に表示 ---
+        if 'dft_result' not in st.session_state:
+            st.session_state['dft_result'] = None
         if st.button('DFT計算を実行', key='run_dft'):
             with st.spinner('計算実行中...'):
                 try:
                     result = run_dft_calculation(atoms, coords, basis_set, functional, charge, spin-1)
-                    # --- カスタムツールチップ用CSSを挿入 ---
-                    st.markdown("""
+                    st.session_state['dft_result'] = result
+                except Exception as e:
+                    st.error(f'計算中にエラーが発生しました: {str(e)}')
+        result = st.session_state['dft_result']
+        if result is not None:
+            # --- カスタムツールチップ用CSSを挿入 ---
+            st.markdown("""
 <style>
 .tooltip {
   position: relative;
@@ -280,107 +288,94 @@ if st.session_state['xyz_string']:
 }
 </style>
 """, unsafe_allow_html=True)
-                    # 最適化後のXYZを一番最初に出力
-                    st.markdown("---")
-                    st.subheader('最適化後の分子構造 (XYZ形式)')
-                    st.text(result['xyz_optimized'])
-                    # --- 最適化後XYZダウンロードボタン ---
-                    # ファイル名を入力方法に応じて決定
-                    if input_method == 'SMILESから取得' and smiles:
-                        xyz_filename = f"{smiles}.xyz"
-                    elif input_method == 'PubChem名/IDから取得' and pubchem_query:
-                        xyz_filename = f"{pubchem_query}.xyz"
-                    else:
-                        xyz_filename = "molecule_optimized.xyz"
-                    st.download_button(
-                        label=f"最適化後のXYZファイルをダウンロード ({xyz_filename})",
-                        data=result['xyz_optimized'],
-                        file_name=xyz_filename,
-                        mime='text/plain'
-                    )
-                    st.markdown("---")
-                    # 分子軌道エネルギー準位図（カスタムツールチップ付きタイトル）
-                    st.markdown(
-                        '''<span class="tooltip" style="font-size:1.2em;">分子軌道エネルギー準位図
+            st.markdown("---")
+            st.subheader('最適化後の分子構造 (XYZ形式)')
+            st.text(result['xyz_optimized'])
+            # --- 最適化後XYZダウンロードボタン ---
+            if input_method == 'SMILESから取得' and 'smiles' in locals() and smiles:
+                xyz_filename = f"{smiles}.xyz"
+            elif input_method == 'PubChem名/IDから取得' and 'pubchem_query' in locals() and pubchem_query:
+                xyz_filename = f"{pubchem_query}.xyz"
+            else:
+                xyz_filename = "molecule_optimized.xyz"
+            st.download_button(
+                label=f"最適化後のXYZファイルをダウンロード ({xyz_filename})",
+                data=result['xyz_optimized'],
+                file_name=xyz_filename,
+                mime='text/plain'
+            )
+            st.markdown("---")
+            st.markdown(
+                '''<span class="tooltip" style="font-size:1.2em;">分子軌道エネルギー準位図
   <span class="tooltiptext">
     分子軌道エネルギー準位図は、各分子軌道のエネルギーを可視化したものです。青色の線はHOMO（最高被占有分子軌道）、赤色の線はLUMO（最低空分子軌道）を示し、緑色の矢印は電子励起に必要な最小エネルギー差（HOMO-LUMOギャップ）を表します。
   </span>
 </span>''',
-                        unsafe_allow_html=True
-                    )
-                    homo_idx = result['mol'].nelectron // 2 - 1
-                    fig = plot_mo_energies_plotly(result['orbital_energies'], homo_idx, gap=result['gap'])
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.markdown("---")
-                    # Mulliken電荷（カスタムツールチップ付きタイトル）
-                    st.markdown(
-                        '''<span class="tooltip" style="font-size:1.2em;">Mulliken電荷
+                unsafe_allow_html=True
+            )
+            homo_idx = result['mol'].nelectron // 2 - 1
+            fig = plot_mo_energies_plotly(result['orbital_energies'], homo_idx, gap=result['gap'])
+            st.plotly_chart(fig, use_container_width=True)
+            st.markdown("---")
+            st.markdown(
+                '''<span class="tooltip" style="font-size:1.2em;">Mulliken電荷
   <span class="tooltiptext">
     Mulliken電荷は、各原子における電子の偏り（部分電荷）を示します。正の値は電子が少なく陽性、負の値は電子が多く陰性であることを意味します。棒グラフで各原子の電荷分布を視覚的に比較できます。
   </span>
 </span>''',
-                        unsafe_allow_html=True
-                    )
-                    charges_df = pd.DataFrame({
-                        '原子': atoms,
-                        '電荷': result['charges']
-                    })
-                    import plotly.express as px
-                    fig_charge = px.bar(charges_df, x='原子', y='電荷', color='電荷', color_continuous_scale='RdBu_r')
-                    st.plotly_chart(fig_charge, use_container_width=True)
-                    st.dataframe(charges_df)
-                    st.markdown("---")
-                    # IRスペクトル（カスタムツールチップ付きタイトル）
-                    st.markdown(
-                        '''<span class="tooltip" style="font-size:1.2em;">IR Spectrum (Vibrational Analysis)
+                unsafe_allow_html=True
+            )
+            charges_df = pd.DataFrame({
+                '原子': atoms,
+                '電荷': result['charges']
+            })
+            import plotly.express as px
+            fig_charge = px.bar(charges_df, x='原子', y='電荷', color='電荷', color_continuous_scale='RdBu_r')
+            st.plotly_chart(fig_charge, use_container_width=True)
+            st.dataframe(charges_df)
+            st.markdown("---")
+            st.markdown(
+                '''<span class="tooltip" style="font-size:1.2em;">IR Spectrum (Vibrational Analysis)
   <span class="tooltiptext">
     IRスペクトル（赤外振動スペクトル）は、分子の振動モードごとの赤外吸収強度と周波数を示します。主なピークは分子内の特定の結合や構造に対応し、分子の構造解析や同定に利用されます。構造最適化が問題なく出来ているかの確認のために行います。エラーを吐いた場合は条件を見直してください。
   </span>
 </span>''',
-                        unsafe_allow_html=True
-                    )
-                    from pyscf.prop import infrared
-                    from pyscf.hessian import thermo
-                    import io
-                    import base64
-                    import matplotlib.pyplot as plt
-                    import sys
-                    try:
-                        # IRスペクトル計算
-                        mf_ir = infrared.rks.Infrared(result['mf_opt']).run()
-                        # summaryの標準出力をキャプチャして表示
-                        buf = io.StringIO()
-                        sys_stdout = sys.stdout
-                        sys.stdout = buf
-                        mf_ir.summary()
-                        sys.stdout = sys_stdout
-                        st.text(buf.getvalue())
-
-                        # 熱力学的性質の出力
-                        thermo_text = io.StringIO()
-                        sys_stdout = sys.stdout
-                        sys.stdout = thermo_text
-                        try:
-                            thermo.dump_thermo(result['mf_opt'].mol, thermo.thermo(result['mf_opt'], mf_ir.vib_dict["freq_au"], 298.15, 101325))
-                        except Exception as e:
-                            print('DEBUG: thermo error:', e)
-                        sys.stdout = sys_stdout
-                        st.text(thermo_text.getvalue())
-
-                        # IRスペクトルプロット
-                        fig, ax, ax2 = mf_ir.plot_ir(w=100, scale=0.960)
-                        ax.set_title("Infrared Spectrum (B3LYP, scale=0.960, FWHM=100 cm$^{-1}$)")
-                        fig.tight_layout()
-                        buf = io.BytesIO()
-                        fig.savefig(buf, format='png')
-                        buf.seek(0)
-                        img_base64 = base64.b64encode(buf.read()).decode()
-                        st.image(f"data:image/png;base64,{img_base64}")
-                        plt.close(fig)
-                    except Exception as e:
-                        st.error(f'IRスペクトル計算中にエラーが発生しました: {e}')
+                unsafe_allow_html=True
+            )
+            from pyscf.prop import infrared
+            from pyscf.hessian import thermo
+            import io
+            import base64
+            import matplotlib.pyplot as plt
+            import sys
+            try:
+                mf_ir = infrared.rks.Infrared(result['mf_opt']).run()
+                buf = io.StringIO()
+                sys_stdout = sys.stdout
+                sys.stdout = buf
+                mf_ir.summary()
+                sys.stdout = sys_stdout
+                st.text(buf.getvalue())
+                thermo_text = io.StringIO()
+                sys_stdout = sys.stdout
+                sys.stdout = thermo_text
+                try:
+                    thermo.dump_thermo(result['mf_opt'].mol, thermo.thermo(result['mf_opt'], mf_ir.vib_dict["freq_au"], 298.15, 101325))
                 except Exception as e:
-                    st.error(f'計算中にエラーが発生しました: {str(e)}')
+                    print('DEBUG: thermo error:', e)
+                sys.stdout = sys_stdout
+                st.text(thermo_text.getvalue())
+                fig, ax, ax2 = mf_ir.plot_ir(w=100, scale=0.960)
+                ax.set_title("Infrared Spectrum (B3LYP, scale=0.960, FWHM=100 cm$^{-1}$)")
+                fig.tight_layout()
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png')
+                buf.seek(0)
+                img_base64 = base64.b64encode(buf.read()).decode()
+                st.image(f"data:image/png;base64,{img_base64}")
+                plt.close(fig)
+            except Exception as e:
+                st.error(f'IRスペクトル計算中にエラーが発生しました: {e}')
     else:
         st.info('有効な分子構造を入力してください。')
 else:
