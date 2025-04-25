@@ -1,0 +1,47 @@
+# Pythonのコンパイル済みファイル
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C拡張モジュール
+*.so
+
+# 配布物 / パッケージング
+dist/
+build/
+*.egg-info/
+*.egg
+
+# 仮想環境
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# データファイル（必要に応じてコメントアウト）
+# *.xyz
+# data/
+
+# 一時ファイル
+*.bak
+*.swp
+*~
+
+# システム固有のファイル
+.DS_Store
+Thumbs.db
+
+# エディタ固有のファイル
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ログファイル
+*.log
+
+# 環境変数ファイル
+.env
+.env.*
