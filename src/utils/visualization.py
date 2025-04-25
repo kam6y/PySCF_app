@@ -83,7 +83,7 @@ def visualize_molecular_orbital(mol, mf, orbital_index, orbital_name):
         ])
         
         # py3Dmolで可視化
-        view = py3Dmol.view(width=max, height=400)
+        view = py3Dmol.view(width=max, height=500)
         view.addModel(xyz_block, 'xyz')
         view.setStyle({'stick': {}})
         view.addVolumetricData(cube_data, 'cube', {'isoval': 0.02, 'color': 'red', 'opacity': 0.75})

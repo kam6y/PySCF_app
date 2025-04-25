@@ -129,6 +129,47 @@ def molecule_sidebar():
     charge = st.sidebar.number_input('分子の電荷:', min_value=-5, max_value=5, value=0, step=1)
     spin = st.sidebar.number_input('スピン多重度 (2S+1):', min_value=1, max_value=6, value=1, step=1)
     
+    # 開発者向け設定（展開可能なセクション）
+    with st.sidebar.expander("⚙️ 開発者向け設定", expanded=False):
+        st.markdown("""
+        ### 高度な計算設定
+        以下の設定は計算パフォーマンスに大きく影響します。不具合が発生した場合は、デフォルト値に戻してお試しください。
+        """)
+        
+        # 並列計算設定
+        available_cores = st.session_state.get('available_cpu_cores', 1)
+        
+        # CPUコア数の設定（最小1コア、最大は利用可能コア数）
+        cpu_cores = st.slider(
+            'CPU使用コア数:',
+            min_value=1,
+            max_value=available_cores,
+            value=st.session_state.get('num_cpu_cores', 1),
+            step=1,
+            help='計算に使用するCPUコア数を設定します。値を増やすと計算速度が向上する場合がありますが、メモリ使用量も増加します。'
+        )
+        
+        # ガイダンス表示
+        st.markdown("""
+        **[CPU設定ガイド]**
+        - **計算速度**: コア数を増やすと計算速度が向上しますが、メモリ消費も増加します
+        - **大きな分子**: 複雑な分子では少ないコア数が安定します（1〜4コア推奨）
+        - **小さな分子**: 単純な分子では多くのコアを活用できます
+        
+        **[Docker環境について]**
+        - この機能はDockerコンテナ内での実行が想定されていますstreamlit上では動作保証しません。
+        - `compose.yaml`ファイルの`cpus: '8'`の設定により最大8コアまで使用可能です
+        - メモリ制限は`memory: 8G`で設定されています
+        - 計算が失敗する場合は、コア数を減らしてメモリ使用量を抑えてください
+        
+        **[トラブルシューティング]**
+        - **エラー発生時**: 計算エラーが発生した場合は、コア数を1に戻してください
+        - **Out of Memory**: メモリ不足エラーの場合もコア数を減らしてください
+        """)
+    
+    # セッションに保存
+    st.session_state['num_cpu_cores'] = cpu_cores
+    
     return {
         'input_method': input_method,
         'pubchem_query': pubchem_query,
@@ -137,5 +178,6 @@ def molecule_sidebar():
         'functional': functional,
         'charge': charge,
         'spin': spin,
+        'cpu_cores': cpu_cores,  # CPU設定を追加
         'xyz_string': xyz_string  # ここでサイドバーのテキストエリアの値を返す
     }

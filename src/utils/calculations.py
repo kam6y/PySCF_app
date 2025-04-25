@@ -1,6 +1,10 @@
 import numpy as np
 import pandas as pd
-from pyscf import gto, dft, geomopt
+import os
+import streamlit as st
+from pyscf import gto, dft, geomopt, lib
+
+# OpenMP環境変数設定のためのos.environをインポート
 import os
 
 def save_xyz_file(atoms, coords, filename='molecule.xyz'):
@@ -14,8 +18,20 @@ def save_xyz_file(atoms, coords, filename='molecule.xyz'):
             f.write(f"{atom} {coords[i][0]:.6f} {coords[i][1]:.6f} {coords[i][2]:.6f}\\n")
     return filepath
 
-def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin):
+def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_cores=None):
     """PySCFを使用したDFT計算を実行"""
+    # CPU並列数の設定
+    if cpu_cores is None:
+        # デフォルト値（セッションから取得）
+        cpu_cores = st.session_state.get('num_cpu_cores', 1)
+    
+    # OpenMP環境変数を明示的に設定
+    os.environ['OMP_NUM_THREADS'] = str(cpu_cores)
+    
+    # PySCF並列設定
+    lib.num_threads(cpu_cores)
+    
+    # 計算設定
     conv_params = {
         'convergence_energy': 1e-6,  # エネルギーの収束閾値 (Eh)
         'convergence_grms': 3e-4,    # 勾配のRMS収束閾値 (Eh/Bohr)
@@ -23,28 +39,55 @@ def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin):
         'convergence_drms': 1.2e-3,  # 変位のRMS収束閾値 (Angstrom)
         'convergence_dmax': 1.8e-3   # 最大変位の収束閾値 (Angstrom)
     }
+    
+    # 分子の準備
     mol_input = []
     for i, atom in enumerate(atoms):
         mol_input.append([atom, coords[i].tolist()])
-    mol = gto.M(atom=mol_input, basis=basis, charge=charge, spin=spin)
+    
+    # メモリ設定（並列計算に合わせて増加）
+    mem_per_core = 2000  # コアあたりのメモリ使用量（MB）
+    total_memory = mem_per_core * cpu_cores
+    
+    mol = gto.M(
+        atom=mol_input, 
+        basis=basis, 
+        charge=charge, 
+        spin=spin, 
+        max_memory=total_memory  # メモリ設定
+    )
+    
+    # RKSの設定
     mf = dft.RKS(mol)
     mf.xc = xc_functional
+    mf.max_memory = total_memory
+    mf.verbose = 4  # より詳細なログを出力
+    
     # SCFオブジェクトを渡して最適化
     mol_opt = geomopt.optimize(mf, conv_params=conv_params)
+    
+    # 最適化後の計算
     mf_opt = dft.RKS(mol_opt)
     mf_opt.xc = xc_functional
+    mf_opt.max_memory = total_memory
     mf_opt.verbose = 0
     energy = mf_opt.kernel()
+    
+    # 分子軌道のエネルギー解析
     homo_idx = mol_opt.nelectron // 2 - 1
     lumo_idx = homo_idx + 1
     mo_energy = mf_opt.mo_energy
     homo_energy = mo_energy[homo_idx]
     lumo_energy = mo_energy[lumo_idx]
     gap = lumo_energy - homo_energy
+    
+    # 結果の整形
     orbital_energies = pd.DataFrame({
         '軌道番号': range(len(mo_energy)),
         'エネルギー (eV)': mo_energy * 27.211386
     })
+    
+    # 電荷計算
     population = mf_opt.mulliken_pop()
     charges = population[1]
     # 最適化後のxyz文字列を生成
@@ -69,13 +112,39 @@ def run_and_plot_ir_spectrum(mf_opt, mol, atoms):
     """IRスペクトルの計算・描画・ピーク表生成を行う"""
     from pyscf.prop import infrared
     from pyscf.hessian import thermo
+    from pyscf import lib
     import io
     import base64
     import matplotlib.pyplot as plt
     import sys
+    import streamlit as st
+    import os
+    
+    # 並列計算設定
+    cpu_cores = st.session_state.get('num_cpu_cores', 1)
+    
+    # OpenMP環境変数を明示的に設定
+    os.environ['OMP_NUM_THREADS'] = str(cpu_cores)
+    
+    # PySCF並列設定
+    lib.num_threads(cpu_cores)
+    
     result = {}
     try:
-        mf_ir = infrared.rks.Infrared(mf_opt).run()
+        # 計算リソース設定
+        mem_per_core = 2000  # コアあたりのメモリ使用量（MB）
+        total_memory = mem_per_core * cpu_cores
+        
+        # メモリ設定
+        mol.max_memory = total_memory
+        mf_opt.max_memory = total_memory
+        
+        # Infraredオブジェクト作成と実行
+        mf_ir = infrared.rks.Infrared(mf_opt)
+        mf_ir.max_memory = total_memory
+        mf_ir = mf_ir.run()
+        
+        # 標準出力をキャプチャ
         sys_stdout = sys.stdout
         thermo_text = io.StringIO()
         sys.stdout = thermo_text
@@ -85,6 +154,7 @@ def run_and_plot_ir_spectrum(mf_opt, mol, atoms):
             pass
         sys.stdout = sys_stdout
         result['thermo_text'] = thermo_text.getvalue()
+        
         # 振動数のスケーリングファクターとして0.960を適用
         fig, ax, ax2 = mf_ir.plot_ir(w=100, scale=0.960)
         ax.set_title("Infrared Spectrum (B3LYP, scale=0.960, FWHM=100 cm$^{-1}$)")
@@ -95,10 +165,18 @@ def run_and_plot_ir_spectrum(mf_opt, mol, atoms):
         img_base64 = base64.b64encode(buf.read()).decode()
         plt.close(fig)
         result['img_base64'] = img_base64
+        
         # IRピークと振動モードの対応表
         freq = mf_ir.vib_dict.get("freq_wavenumber")  # cm^-1
+        freq_au = mf_ir.vib_dict.get("freq_au")  # au (atomic unit)
         intensity = getattr(mf_ir, "ir_inten", None)  # IR強度 (km/mol)
         normal_modes = mf_ir.vib_dict.get("norm_mode")
+        
+        # 熱力学計算のために振動数データを保存
+        result['freq'] = freq
+        result['freq_au'] = freq_au
+        result['vib_dict'] = mf_ir.vib_dict
+        
         if freq is not None and intensity is not None and normal_modes is not None:
             mode_info = []
             for idx in range(len(freq)):

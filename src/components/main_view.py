@@ -41,7 +41,20 @@ def show_main_view(sidebar_values):
                 # 計算中の状態をメイン画面に表示
                 with st.spinner(f'DFT計算実行中... 基底関数: {basis_set}, 交換相関汎関数: {functional}'):
                     try:
-                        result = run_dft_calculation(atoms, coords, basis_set, functional, charge, spin-1)
+                        # CPUコア数の取得
+                        cpu_cores = sidebar_values.get('cpu_cores', st.session_state.get('num_cpu_cores', 1))
+                        
+                        # 計算実行
+                        result = run_dft_calculation(
+                            atoms, 
+                            coords, 
+                            basis_set, 
+                            functional, 
+                            charge, 
+                            spin-1,
+                            cpu_cores=cpu_cores
+                        )
+                        
                         st.session_state['dft_result'] = result
                         
                         # 計算結果をセッションに保存し、サイドバーに自動反映
@@ -51,7 +64,7 @@ def show_main_view(sidebar_values):
                         st.session_state['auto_reflect_to_sidebar'] = True
                         
                         # 成功メッセージを表示（直接表示）
-                        calc_container.success('計算が完了しました。XYZ座標をサイドバーに自動反映します。')
+                        calc_container.success(f'計算が完了しました。XYZ座標をサイドバーに自動反映します。')
                         
                         # ページを再読み込み（streamlit 0.88.0以降の新しい方法）
                         st.rerun()

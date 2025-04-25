@@ -14,8 +14,14 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
+      - OMP_NUM_THREADS=8  # OpenMP環境変数設定（並列計算用）
+      - MKL_NUM_THREADS=8  # MKLライブラリ用スレッド数設定
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 4G
+          cpus: '8'  # このコンテナが使用可能なCPUコア数上限
+          memory: 8G  # このコンテナが使用可能なメモリ上限
+
+# 注: UIの「開発者向け設定」で設定できるCPUコア数は、
+# ここで設定したcpus値（この場合は8）までしか利用できません。
+# ホストマシンのスペックに合わせて調整してください。

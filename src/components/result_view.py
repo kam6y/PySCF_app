@@ -1,4 +1,5 @@
 import streamlit as st
+import numpy as np
 import pandas as pd
 import plotly.express as px
 from utils.visualization import plot_mo_energies_plotly, visualize_molecular_orbital
@@ -19,7 +20,7 @@ def show_result_view(result, atoms):
 
 def show_analysis_tabs(result, atoms):
     """分析タブの表示"""
-    tabs = st.tabs(["軌道・電荷・IR", "分子軌道可視化"])
+    tabs = st.tabs(["軌道・電荷・IR", "分子軌道可視化", "熱力学特性"])
     
     # --- カスタムツールチップ用CSSを挿入 ---
     st.markdown("""
@@ -58,6 +59,9 @@ def show_analysis_tabs(result, atoms):
     
     with tabs[1]:
         show_molecular_orbital_tab(result)
+        
+    with tabs[2]:
+        show_thermodynamics_tab(result, atoms)
 
 def show_orbital_charges_ir_tab(result, atoms):
     """軌道・電荷・IRタブの表示"""
@@ -119,6 +123,9 @@ def show_orbital_charges_ir_tab(result, atoms):
         if ir_result['detail']:
             st.error(f'IRスペクトル計算中にエラーが発生しました: {ir_result["detail"]}')
         else:
+            # セッションにIR計算結果を保存（熱力学特性計算で使用）
+            st.session_state['ir_result'] = ir_result
+            
             st.text(ir_result['thermo_text'])
             st.image(f"data:image/png;base64,{ir_result['img_base64']}")
             st.markdown('主なIRピークと振動モードの対応')
@@ -180,7 +187,7 @@ def show_molecular_orbital_tab(result):
         
         if viz_result['success']:
             view = viz_result['view']
-            st.components.v1.html(view._make_html(), height=420)
+            st.components.v1.html(view._make_html(), height=520)
             st.caption(f"{orbital_name} エネルギー: {orbital_energies[orbital_name]:.3f} eV")
         else:
             st.error(f"分子軌道の可視化に失敗しました: {viz_result['error']}")
@@ -188,3 +195,145 @@ def show_molecular_orbital_tab(result):
     except Exception as e:
         st.error(f"分子軌道可視化中にエラーが発生しました: {str(e)}")
         st.warning("XYZ座標を編集した場合は、再度「DFT計算を開始」ボタンを押して新しい構造で計算を実行してください。")
+
+def show_thermodynamics_tab(result, atoms=None):
+    """熱力学特性タブの表示"""
+    import pandas as pd
+    import traceback
+    import os
+    from pyscf.hessian import thermo, rks
+    from pyscf import lib
+    
+    st.markdown(
+        '''<span class="tooltip" style="font-size:1.2em;">熱力学特性
+  <span class="tooltiptext">
+    熱力学特性は、分子の安定性とエネルギーに関する重要な情報を提供します。ゼロ点エネルギー、エンタルピー、エントロピー、自由エネルギーなどが含まれます。これらの値は温度298.15 K、圧力1気圧での計算結果です。
+  </span>
+</span>''',
+        unsafe_allow_html=True
+    )
+    
+    mol = result['mol']
+    mf = result['mf_opt']
+    
+    # 各計算ごとに新しく計算して常に現在の分子構造の結果を表示する
+    # セッション状態にキャッシュを保存しない
+    
+    # 並列計算設定
+    cpu_cores = st.session_state.get('num_cpu_cores', 1)
+    
+    # OpenMP環境変数を明示的に設定
+    os.environ['OMP_NUM_THREADS'] = str(cpu_cores)
+    
+    # PySCF並列設定
+    lib.num_threads(cpu_cores)
+    
+    # まだ計算していない場合は計算を実行
+    with st.spinner('熱力学特性を計算中...この処理には時間がかかることがあります'):
+        try:
+            # ヘシアン計算を実行して直接振動数を取得
+            # 並列計算に合わせてメモリ設定
+            mem_per_core = 2000  # コアあたりのメモリ使用量（MB）
+            total_memory = mem_per_core * cpu_cores
+            
+            mol.max_memory = total_memory
+            mf.max_memory = total_memory
+            
+            # ヘシアン計算器を初期化
+            hess = rks.Hessian(mf)
+            
+            # ヘシアン行列を計算
+            hess_matrix = hess.kernel()
+            
+            # 振動解析
+            freq_info = thermo.harmonic_analysis(mol, hess_matrix)
+            
+            # 熱力学特性の計算 (298.15 K, 1 atm)
+            thermo_info = thermo.thermo(mf, freq_info['freq_au'], 298.15, 101325)
+            
+            # 結果を表示
+            display_thermo_results(thermo_info, freq_info)
+            
+        except Exception as e:
+            st.error(f"熱力学特性の計算中にエラーが発生しました: {str(e)}")
+            st.code(traceback.format_exc())
+            st.warning("分子が大きすぎるか複雑すぎる場合は、計算に時間がかかるか、メモリ不足で失敗する可能性があります。より少ないCPUコア数を試すと改善する場合があります。")
+
+def display_thermo_results(thermo_info, freq_info):
+    """熱力学特性の計算結果を表示する"""
+    import pandas as pd
+    
+    # 単位の変換定数
+    HARTREE_TO_EV = 27.211386
+    HARTREE_TO_KCAL = 627.5095
+    
+    # 熱力学特性データの作成
+    thermo_data = {
+        "物理量": [
+            "温度 (K)",
+            "圧力 (atm)",
+            "電子エネルギー (Hartree)",
+            "ゼロ点エネルギー補正 (Hartree)",
+            "熱エネルギー補正 (Hartree)",
+            "熱エンタルピー補正 (Hartree)",
+            "熱自由エネルギー補正 (Hartree)",
+            "電子エネルギー + ゼロ点エネルギー (Hartree)",
+            "電子エネルギー + 熱エネルギー補正 (Hartree)",
+            "電子エネルギー + 熱エンタルピー補正 (Hartree)",
+            "電子エネルギー + 熱自由エネルギー補正 (Hartree)",
+            "熱容量 (Cv) (J/mol·K)",
+            "エントロピー (S) (J/mol·K)",
+            "電子エネルギー + ゼロ点エネルギー (eV)",
+            "電子エネルギー + ゼロ点エネルギー (kcal/mol)"
+        ],
+        "値": [
+            thermo_info['temperature'][0],
+            thermo_info['pressure'][0] / 101325,  # Paからatmへ変換
+            thermo_info['E0'][0],
+            thermo_info['ZPE'][0],
+            thermo_info['E_vib'][0],
+            thermo_info['H_vib'][0],
+            thermo_info['G_vib'][0],
+            thermo_info['E_0K'][0],
+            thermo_info['E_tot'][0],
+            thermo_info['H_tot'][0],
+            thermo_info['G_tot'][0],
+            thermo_info['Cv_tot'][0],
+            thermo_info['S_tot'][0],
+            thermo_info['E_0K'][0] * HARTREE_TO_EV,
+            thermo_info['E_0K'][0] * HARTREE_TO_KCAL
+        ]
+    }
+    
+    # DataFrameの作成
+    df_thermo = pd.DataFrame(thermo_data)
+    
+    # 表示
+        # 主要な熱力学特性を強調表示
+    st.markdown("### 主要な熱力学特性")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric(
+            label="ゼロ点エネルギー (ZPE)", 
+            value=f"{thermo_info['ZPE'][0]:.6f} Hartree"
+        )
+        st.metric(
+            label="熱エンタルピー (H)", 
+            value=f"{thermo_info['H_tot'][0]:.6f} Hartree"
+        )
+    
+    with col2:
+        st.metric(
+            label="熱自由エネルギー (G)", 
+            value=f"{thermo_info['G_tot'][0]:.6f} Hartree"
+        )
+        st.metric(
+            label="エントロピー (S)", 
+            value=f"{thermo_info['S_tot'][0]:.6f} J/mol·K"
+        )
+
+    st.dataframe(df_thermo, use_container_width=True, height=600)
+    
+
+
