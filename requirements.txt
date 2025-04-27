@@ -1,0 +1,13 @@
+streamlit==1.44.0
+numpy==1.26.4
+scipy==1.15.1
+matplotlib==3.8.2
+pyscf==2.8.0
+rdkit-pypi==2022.9.5
+pandas==2.2.0
+plotly==5.24.1
+pubchempy==1.0.4
+py3Dmol==2.0.1
+geometric==1.0.2
+git+https://github.com/pyscf/properties
+psutil==5.9.5
