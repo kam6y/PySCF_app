@@ -7,6 +7,46 @@ from pyscf import gto, dft, geomopt, lib
 # OpenMP環境変数設定のためのos.environをインポート
 import os
 
+def apply_solvent_effects(mf, solvent_settings):
+    """DFT計算に溶媒効果を適用する"""
+    if not solvent_settings or not solvent_settings.get('enable_solvent', False):
+        return mf, None
+    
+    solvent_model = solvent_settings.get('solvent_model', '')
+    selected_solvent = solvent_settings.get('selected_solvent', 'Water')
+    epsilon = solvent_settings.get('epsilon', 78.3553)
+    
+    # 値のチェックと安全な処理
+    if not isinstance(epsilon, (int, float)):
+        epsilon = 78.3553  # デフォルト値
+    
+    solvent_message = ""
+    try:
+        if solvent_model == 'IEF-PCM':
+            # PCMモデルの適用
+            mf = mf.PCM()
+            mf.with_solvent.method = 'IEF-PCM'
+            mf.with_solvent.eps = epsilon
+            solvent_message = f'IEF-PCM溶媒モデル（誘電率: {epsilon:.4f}）適用'
+        elif solvent_model == 'SMD':
+            # SMDモデルの適用
+            mf = mf.SMD()
+            if selected_solvent == "カスタム":
+                # カスタム設定の場合はエラーメッセージを表示
+                st.warning("SMDモデルではカスタム溶媒設定はサポートされていません。水を使用します。")
+                mf.with_solvent.solvent = 'water'
+                solvent_message = f'SMD溶媒モデル（溶媒: Water）適用'
+            else:
+                # 標準溶媒を使用
+                solvent_name = selected_solvent.lower()
+                mf.with_solvent.solvent = solvent_name
+                solvent_message = f'SMD溶媒モデル（溶媒: {selected_solvent}）適用'
+    except Exception as e:
+        st.error(f"溶媒効果の適用中にエラーが発生しました: {str(e)}")
+        st.warning("溶媒効果なしで計算を続行します。")
+    
+    return mf, solvent_message
+
 def save_xyz_file(atoms, coords, filename='molecule.xyz'):
     """XYZ形式でファイルを保存"""
     os.makedirs('data', exist_ok=True)
@@ -18,7 +58,7 @@ def save_xyz_file(atoms, coords, filename='molecule.xyz'):
             f.write(f"{atom} {coords[i][0]:.6f} {coords[i][1]:.6f} {coords[i][2]:.6f}\\n")
     return filepath
 
-def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_cores=None):
+def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_cores=None, solvent_settings=None):
     """PySCFを使用したDFT計算を実行"""
     # CPU並列数の設定
     if cpu_cores is None:
@@ -57,20 +97,39 @@ def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_c
         max_memory=total_memory  # メモリ設定
     )
     
+    # 汎関数名の正規化
+    xc_functional_normalized = xc_functional.lower()
+    
+    # 特殊な汎関数の処理
+    if xc_functional_normalized == 'wb97x':
+        xc_functional_normalized = 'wb97x_v'  # PySCFではwb97xをwb97x_vとして実装
+    elif xc_functional_normalized == 'cam-b3lyp':
+        xc_functional_normalized = 'camb3lyp'  # PySCFではcam-b3lypをcamb3lypとして実装
+    
     # RKSの設定
     mf = dft.RKS(mol)
-    mf.xc = xc_functional
+    mf.xc = xc_functional_normalized
     mf.max_memory = total_memory
     mf.verbose = 4  # より詳細なログを出力
+    
+    # 溶媒効果の適用（設定されている場合）
+    solvent_message = None
+    if solvent_settings and solvent_settings.get('enable_solvent', False):
+        mf, solvent_message = apply_solvent_effects(mf, solvent_settings)
     
     # SCFオブジェクトを渡して最適化
     mol_opt = geomopt.optimize(mf, conv_params=conv_params)
     
     # 最適化後の計算
     mf_opt = dft.RKS(mol_opt)
-    mf_opt.xc = xc_functional
+    mf_opt.xc = xc_functional_normalized  # 正規化された汎関数名を使用
     mf_opt.max_memory = total_memory
     mf_opt.verbose = 0
+    
+    # 最適化後も同じ溶媒効果を適用
+    if solvent_settings and solvent_settings.get('enable_solvent', False):
+        mf_opt, _ = apply_solvent_effects(mf_opt, solvent_settings)
+    
     energy = mf_opt.kernel()
     
     # 分子軌道のエネルギー解析
@@ -96,6 +155,16 @@ def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_c
     atom_coords = mol_opt.atom_coords() * BOHR_TO_ANGSTROM  # Bohr→Åに変換
     xyz_lines = [f"{atom_syms[i]} {atom_coords[i][0]:.6f} {atom_coords[i][1]:.6f} {atom_coords[i][2]:.6f}" for i in range(len(atom_syms))]
     xyz_optimized = f"{len(atom_syms)}\nOptimized by PySCF\n" + "\n".join(xyz_lines)
+    
+    # 溶媒設定も結果に含める
+    solvent_info = None
+    if solvent_settings and solvent_settings.get('enable_solvent', False):
+        solvent_info = {
+            'model': solvent_settings.get('solvent_model', ''),
+            'solvent': solvent_settings.get('selected_solvent', ''),
+            'epsilon': solvent_settings.get('epsilon', 0)
+        }
+        
     return {
         'energy': energy,
         'homo': homo_energy * 27.211386,
@@ -105,10 +174,11 @@ def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_c
         'charges': charges,
         'mol': mol_opt,
         'xyz_optimized': xyz_optimized,
-        'mf_opt': mf_opt  # 追加: 最適化後のSCFオブジェクト
+        'mf_opt': mf_opt,  # 追加: 最適化後のSCFオブジェクト
+        'solvent_info': solvent_info  # 溶媒情報を追加
     }
 
-def run_and_plot_ir_spectrum(mf_opt, mol, atoms):
+def run_and_plot_ir_spectrum(mf_opt, mol, atoms, solvent_settings=None):
     """IRスペクトルの計算・描画・ピーク表生成を行う"""
     from pyscf.prop import infrared
     from pyscf.hessian import thermo
@@ -119,6 +189,7 @@ def run_and_plot_ir_spectrum(mf_opt, mol, atoms):
     import sys
     import streamlit as st
     import os
+    # apply_solvent_effectsは同じファイル内に統合済み
     
     # 並列計算設定
     cpu_cores = st.session_state.get('num_cpu_cores', 1)
@@ -139,6 +210,35 @@ def run_and_plot_ir_spectrum(mf_opt, mol, atoms):
         mol.max_memory = total_memory
         mf_opt.max_memory = total_memory
         
+        # 溶媒効果の適用（設定されている場合）
+        if solvent_settings and solvent_settings.get('enable_solvent', False):
+            try:
+                mf_opt, _ = apply_solvent_effects(mf_opt, solvent_settings)
+                result['solvent_applied'] = True
+                
+                solvent_model = solvent_settings.get('solvent_model', '')
+                selected_solvent = solvent_settings.get('selected_solvent', 'カスタム')
+                
+                if solvent_model == 'IEF-PCM':
+                    if selected_solvent == 'カスタム':
+                        epsilon = solvent_settings.get('epsilon', 0.0)
+                        if epsilon is not None:
+                            result['solvent_info'] = f"IEF-PCM (カスタム, ε={epsilon:.4f})"
+                        else:
+                            result['solvent_info'] = f"IEF-PCM (カスタム)"
+                    else:
+                        result['solvent_info'] = f"IEF-PCM ({selected_solvent})"
+                elif solvent_model == 'SMD':
+                    if selected_solvent == 'カスタム':
+                        result['solvent_info'] = f"SMD (Water)"
+                    else:
+                        result['solvent_info'] = f"SMD ({selected_solvent})"
+            except Exception as e:
+                st.warning(f"IRスペクトル計算に溶媒効果を適用できませんでした: {str(e)}")
+                result['solvent_applied'] = False
+        else:
+            result['solvent_applied'] = False
+        
         # Infraredオブジェクト作成と実行
         mf_ir = infrared.rks.Infrared(mf_opt)
         mf_ir.max_memory = total_memory
@@ -157,7 +257,23 @@ def run_and_plot_ir_spectrum(mf_opt, mol, atoms):
         
         # 振動数のスケーリングファクターとして0.960を適用
         fig, ax, ax2 = mf_ir.plot_ir(w=100, scale=0.960)
-        ax.set_title("Infrared Spectrum (B3LYP, scale=0.960, FWHM=100 cm$^{-1}$)")
+        
+        # タイトルに汎関数名と溶媒情報を追加
+        # 汎関数名の取得と正規化
+        functional_name = mf_opt.xc.upper() if hasattr(mf_opt, 'xc') else "B3LYP"
+        
+        # 表示用に汎関数名を調整
+        if functional_name == "WB97X_V":
+            functional_name = "ωB97X-V"
+        elif functional_name == "CAMB3LYP":
+            functional_name = "CAM-B3LYP"
+            
+        title = f"Infrared Spectrum ({functional_name}, scale=0.960, FWHM=100 cm$^{{-1}}$)"
+        if result.get('solvent_applied', False):
+            solv_info = result.get('solvent_info', '')
+            title += f" - {solv_info}"
+        ax.set_title(title)
+        
         fig.tight_layout()
         buf = io.BytesIO()
         fig.savefig(buf, format='png')

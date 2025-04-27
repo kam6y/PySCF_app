@@ -26,7 +26,6 @@ def show_main_view(sidebar_values):
     if st.session_state['xyz_string']:
         atoms, coords = get_molecule_from_xyz(st.session_state['xyz_string'])
         if atoms is not None and coords is not None:
-            # 構造最適化ボタンを3D分子構造の見出しの上に配置
             calc_container = st.container()
             
             if calc_container.button('DFT計算を開始', key='run_dft'):
@@ -35,11 +34,54 @@ def show_main_view(sidebar_values):
                 st.session_state['functional'] = functional
                 st.session_state['charge'] = charge
                 st.session_state['spin'] = spin
-                # 設定表示フラグをオン
+                
+                # 溶媒効果の設定を保存
+                solvent_settings = sidebar_values.get('solvent_settings', {})
+                if solvent_settings:
+                    st.session_state['enable_solvent'] = solvent_settings.get('enable_solvent', False)
+                    st.session_state['solvent_model'] = solvent_settings.get('solvent_model', '')
+                    st.session_state['selected_solvent'] = solvent_settings.get('selected_solvent', '')
+                    st.session_state['custom_epsilon'] = solvent_settings.get('epsilon', 0)
+                
+                # 設定表示フラグをオン（計算開始前に設定）
                 st.session_state['show_dft_settings'] = True
                 
-                # 計算中の状態をメイン画面に表示
-                with st.spinner(f'DFT計算実行中... 基底関数: {basis_set}, 交換相関汎関数: {functional}'):
+                # 溶媒情報の取得（計算画面にも表示する）
+                solvent_info_display = ""
+                if st.session_state.get('enable_solvent', False):
+                    solvent_model = st.session_state.get('solvent_model', '')
+                    selected_solvent = st.session_state.get('selected_solvent', 'カスタム')
+                    
+                    if solvent_model == 'IEF-PCM':
+                        if selected_solvent == 'カスタム':
+                            epsilon = st.session_state.get('custom_epsilon', 0.0)
+                            if epsilon is not None:
+                                solvent_info_display = f"- 溶媒効果: **{solvent_model}** (カスタム, ε={epsilon:.4f})"
+                            else:
+                                solvent_info_display = f"- 溶媒効果: **{solvent_model}** (カスタム)"
+                        else:
+                            solvent_info_display = f"- 溶媒効果: **{solvent_model}** ({selected_solvent})"
+                    elif solvent_model == 'SMD':
+                        if selected_solvent == 'カスタム':
+                            solvent_info_display = f"- 溶媒効果: **{solvent_model}** (Water)"
+                        else:
+                            solvent_info_display = f"- 溶媒効果: **{solvent_model}** ({selected_solvent})"
+                
+                # 計算設定をボタン押下時に表示（計算実行前）
+                calc_container.info(f"""
+                **計算設定:**
+                - 基底関数セット: **{basis_set}**
+                - 交換相関汎関数: **{functional}**
+                - 電荷: {charge}
+                - スピン多重度: {spin}
+                {solvent_info_display}
+                """)
+                
+                # 溶媒設定を確認（内部処理用）
+                solvent_settings = sidebar_values.get('solvent_settings', None)
+                
+                # 計算中の状態をメイン画面に表示（簡略化）
+                with st.spinner('DFT計算実行中...'):
                     try:
                         # CPUコア数の取得
                         cpu_cores = sidebar_values.get('cpu_cores', st.session_state.get('num_cpu_cores', 1))
@@ -52,7 +94,8 @@ def show_main_view(sidebar_values):
                             functional, 
                             charge, 
                             spin-1,
-                            cpu_cores=cpu_cores
+                            cpu_cores=cpu_cores,
+                            solvent_settings=sidebar_values.get('solvent_settings', None)
                         )
                         
                         st.session_state['dft_result'] = result
@@ -64,13 +107,19 @@ def show_main_view(sidebar_values):
                         st.session_state['auto_reflect_to_sidebar'] = True
                         
                         # 成功メッセージを表示（直接表示）
-                        calc_container.success(f'計算が完了しました。XYZ座標をサイドバーに自動反映します。')
+                        calc_container.success(f'構造最適化計算が完了しました。XYZ座標をサイドバーに自動反映します。')
                         
                         # ページを再読み込み（streamlit 0.88.0以降の新しい方法）
                         st.rerun()
                         
                     except Exception as e:
-                        st.error(f'計算中にエラーが発生しました: {str(e)}')
+                        error_message = str(e)
+                        if "TypeError: first argument must be a string" in error_message or "gto.basis.load_basis" in error_message:
+                            st.error(f"基底関数セットのエラーが発生しました: {error_message}\n\n選択した基底関数 '{basis_set}' がPySCFで正しく処理できなかった可能性があります。\n\n一般的な解決策:\n1. 標準的な表記を使用しているか確認してください\n2. より一般的な基底関数（'sto-3g'や'6-31g'など）を試してみてください")
+                        elif "KeyError" in error_message and "xc_code" in error_message:
+                            st.error(f"汎関数のエラーが発生しました: {error_message}\n\n選択した汎関数 '{functional}' がPySCFで正しく処理できなかった可能性があります。\n\n一般的な解決策:\n1. 標準的な表記を使用しているか確認してください\n2. より一般的な汎関数（'b3lyp'や'pbe0'など）を試してみてください")
+                        else:
+                            st.error(f'計算中にエラーが発生しました: {error_message}')
             
             # 成功メッセージの表示（計算完了後のページリロード時）
             if st.session_state.get('calculation_success', False):

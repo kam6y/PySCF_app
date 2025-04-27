@@ -119,7 +119,22 @@ def show_orbital_charges_ir_tab(result, atoms):
     )
     
     try:
-        ir_result = result['run_and_plot_ir_spectrum'](result['mf_opt'], result['mol'], atoms)
+        # 溶媒設定をセッションから取得
+        solvent_settings = None
+        if st.session_state.get('enable_solvent', False):
+            solvent_settings = {
+                'enable_solvent': st.session_state.get('enable_solvent', False),
+                'solvent_model': st.session_state.get('solvent_model', ''),
+                'selected_solvent': st.session_state.get('selected_solvent', ''),
+                'epsilon': st.session_state.get('custom_epsilon', 0)
+            }
+            
+        ir_result = result['run_and_plot_ir_spectrum'](
+            result['mf_opt'], 
+            result['mol'], 
+            atoms, 
+            solvent_settings=solvent_settings
+        )
         if ir_result['detail']:
             st.error(f'IRスペクトル計算中にエラーが発生しました: {ir_result["detail"]}')
         else:
@@ -182,8 +197,18 @@ def show_molecular_orbital_tab(result):
         orbital_name = selected[1]
         orbital_index = orbitals[orbital_name]
         
-        # 分子軌道の可視化
-        viz_result = visualize_molecular_orbital(mol, mf, orbital_index, orbital_name)
+        # 分子軌道の可視化結果をキャッシュするためのキー
+        # molオブジェクトのid（メモリアドレス）とorbital_indexを組み合わせてユニークなキーを生成
+        cache_key = f"orbital_viz_{id(mol)}_{orbital_index}"
+        
+        # すでに計算されたデータがあればキャッシュから取得
+        if cache_key in st.session_state:
+            viz_result = st.session_state[cache_key]
+        else:
+            # 分子軌道の可視化を実行
+            viz_result = visualize_molecular_orbital(mol, mf, orbital_index, orbital_name)
+            # 結果をキャッシュに保存
+            st.session_state[cache_key] = viz_result
         
         if viz_result['success']:
             view = viz_result['view']
@@ -216,21 +241,31 @@ def show_thermodynamics_tab(result, atoms=None):
     mol = result['mol']
     mf = result['mf_opt']
     
-    # 各計算ごとに新しく計算して常に現在の分子構造の結果を表示する
-    # セッション状態にキャッシュを保存しない
+    # 熱力学計算結果をセッションに保存してキャッシュする
+    # molオブジェクトのid（メモリアドレス）を使用してユニークなキーを生成
+    thermo_key = f"thermo_result_{id(mol)}"
     
-    # 並列計算設定
-    cpu_cores = st.session_state.get('num_cpu_cores', 1)
-    
-    # OpenMP環境変数を明示的に設定
-    os.environ['OMP_NUM_THREADS'] = str(cpu_cores)
-    
-    # PySCF並列設定
-    lib.num_threads(cpu_cores)
+    # 既に計算済みの場合はキャッシュから取得
+    if thermo_key in st.session_state:
+        try:
+            cached_thermo = st.session_state[thermo_key]
+            display_thermo_results(cached_thermo['thermo_info'], cached_thermo['freq_info'])
+            return
+        except Exception as e:
+            st.warning(f"キャッシュデータの読み込みエラー: {e}。再計算します。")
     
     # まだ計算していない場合は計算を実行
     with st.spinner('熱力学特性を計算中...この処理には時間がかかることがあります'):
         try:
+            # 並列計算設定
+            cpu_cores = st.session_state.get('num_cpu_cores', 1)
+            
+            # OpenMP環境変数を明示的に設定
+            os.environ['OMP_NUM_THREADS'] = str(cpu_cores)
+            
+            # PySCF並列設定
+            lib.num_threads(cpu_cores)
+            
             # ヘシアン計算を実行して直接振動数を取得
             # 並列計算に合わせてメモリ設定
             mem_per_core = 2000  # コアあたりのメモリ使用量（MB）
@@ -250,6 +285,12 @@ def show_thermodynamics_tab(result, atoms=None):
             
             # 熱力学特性の計算 (298.15 K, 1 atm)
             thermo_info = thermo.thermo(mf, freq_info['freq_au'], 298.15, 101325)
+            
+            # 計算結果をセッションに保存
+            st.session_state[thermo_key] = {
+                'thermo_info': thermo_info,
+                'freq_info': freq_info
+            }
             
             # 結果を表示
             display_thermo_results(thermo_info, freq_info)
