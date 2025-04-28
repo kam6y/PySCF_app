@@ -1,6 +1,6 @@
-# PySCF_Front
+# PySCF_Front_DFT
 
-PySCF_Frontは、PySCF（Python for Simulating Chemistry Framework）を活用した量子化学計算Webアプリケーションです。Streamlitベースのインターフェースで、密度汎関数理論（DFT）計算を簡単に実行できます。Docker環境で簡単にセットアップ・実行できます。
+PySCF_Front_DFTは、PySCF（Python for Simulating Chemistry Framework）を活用した量子化学計算Webアプリケーションです。Streamlitベースのインターフェースで、密度汎関数理論（DFT）計算を簡単に実行できます。Docker環境で簡単にセットアップ・実行できます。
 
 ## 機能
 
@@ -125,12 +125,12 @@ Docker環境での並列計算を調整するには:
 ## ToDo
 
 - 参考文献
-- 対称性の加味 symmetry=True
 - NMRスペクトルの計算(拡張モジュール)
 - UVスペクトル可視化(TDDFT)
 - サイクルの回数を明記
 - ECP（Effective Core Potential : 有効内殻ポテンシャル）(金属錯体)
 - CASSCF/CASCI
+- 対称性の加味 symmetry=True ←PySCF側で実装が不十分な為、実装しない
 
 OS版で行うこと
 - GPU版の実装
