@@ -167,7 +167,7 @@ def molecule_sidebar():
     st.sidebar.title('計算設定')
     
     # 計算負荷に基づく基底関数と汎関数のリスト（色分け表示用）
-    st.sidebar.markdown('### 基底関数セット (計算負荷の色分け):')
+    st.sidebar.markdown("計算負荷の目安:")
     st.sidebar.markdown('''
     <span style="color:green;">■ 軽い</span> | 
     <span style="color:#CC9900;">■ 中程度</span> | 
@@ -204,9 +204,7 @@ def molecule_sidebar():
     # 選択された基底関数を色付きで表示
     st.sidebar.markdown(f'選択: {basis_labels[basis_index]}', unsafe_allow_html=True)
     
-    # 汎関数の設定
-    st.sidebar.markdown('### 交換相関汎関数 (計算負荷の色分け):')
-    
+    # 汎関数の設定    
     # 汎関数のオプションを計算負荷で色分け
     functional_options = [
         {'label': '<span style="color:green;">lda</span>', 'value': 'lda'},

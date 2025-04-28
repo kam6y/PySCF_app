@@ -20,7 +20,7 @@ def show_result_view(result, atoms):
 
 def show_analysis_tabs(result, atoms):
     """分析タブの表示"""
-    tabs = st.tabs(["軌道・電荷・IR", "分子軌道可視化", "熱力学特性"])
+    tabs = st.tabs(["軌道・電荷・IR", "分子軌道可視化", "熱力学特性", "参考文献"])
     
     # --- カスタムツールチップ用CSSを挿入 ---
     st.markdown("""
@@ -62,6 +62,9 @@ def show_analysis_tabs(result, atoms):
         
     with tabs[2]:
         show_thermodynamics_tab(result, atoms)
+        
+    with tabs[3]:
+        show_references_tab()
 
 def show_orbital_charges_ir_tab(result, atoms):
     """軌道・電荷・IRタブの表示"""
@@ -377,4 +380,134 @@ def display_thermo_results(thermo_info, freq_info):
     st.dataframe(df_thermo, use_container_width=True, height=600)
     
 
+def show_references_tab() -> None:
+    """参考文献タブの表示（再構成版）"""
+    st.markdown(
+        '''
+        <span class="tooltip" style="font-size:1.2em;">参考文献
+          <span class="tooltiptext">
+            このアプリケーションの開発と理論的背景に関連する主要文献です。
+            各セクションはテーマごとに「査読論文 → 書籍 → オンラインリソース」の順で並びます。
+          </span>
+        </span>
+        ''',
+        unsafe_allow_html=True
+    )
+
+    # ───────────────────────────────────────
+    # 1. PySCF フレームワーク
+    # ───────────────────────────────────────
+    with st.expander("PySCF フレームワーク", expanded=True):
+        st.markdown("""
+### 査読論文
+1. **Q. Sun *et&nbsp;al*.**, “Recent developments in the PySCF program package”, *J. Chem. Phys.* **153**, 024109 (2020).  
+2. **Q. Sun *et&nbsp;al*.**, “PySCF: The Python-based Simulations of Chemistry Framework”, *WIREs Comput. Mol. Sci.* **8**, e1340 (2018).  
+
+### オンラインリソース
+- PySCF 公式サイト (最終アクセス 2025-04-28): <https://pyscf.org/>
+        """)
+
+    # ───────────────────────────────────────
+    # 2. Density-Functional Theory (DFT)
+    # ───────────────────────────────────────
+    with st.expander("密度汎関数理論（DFT）"):
+        st.markdown("""
+### 査読論文
+1. **U. Ekström *et&nbsp;al*.**, “Arbitrary-order density-functional response theory from automatic differentiation”, *J. Chem. Theory Comput.* **6**, 1971 (2010).
+        """)
+
+    # ───────────────────────────────────────
+    # 3. 交換相関汎関数
+    # ───────────────────────────────────────
+    with st.expander("交換相関汎関数"):
+        st.markdown("""
+### 査読論文
+1. **J. P. Perdew *et&nbsp;al*.**, “Generalized Gradient Approximation Made Simple”, *Phys. Rev. Lett.* **77**, 3865 (1996).  
+2. **A. D. Becke**, “Density-functional thermochemistry III. The role of exact exchange”, *J. Chem. Phys.* **98**, 5648 (1993).  
+3. **Y. Zhao, D. G. Truhlar**, “The M06 suite of density functionals…”, *Theor. Chem. Acc.* **120**, 215 (2008).  
+4. **S. Lehtola *et&nbsp;al*.**, “Recent developments in libxc — A comprehensive library of functionals for DFT”, *SoftwareX* **7**, 1 (2018).
+        """)
+
+    # ───────────────────────────────────────
+    # 4. 基底関数セット
+    # ───────────────────────────────────────
+    with st.expander("基底関数セット"):
+        st.markdown("""
+### 査読論文
+1. **W. J. Hehre *et&nbsp;al*.**, “Self-Consistent MO Methods IX. An Extended Gaussian-Type Basis…”, *J. Chem. Phys.* **54**, 724 (1971).  
+2. **T. H. Dunning Jr.**, “Gaussian basis sets for use in correlated molecular calculations I…”, *J. Chem. Phys.* **90**, 1007 (1989).
+        """)
+
+    # ───────────────────────────────────────
+    # 5. 溶媒効果モデル
+    # ───────────────────────────────────────
+    with st.expander("溶媒効果モデル"):
+        st.markdown("""
+### 査読論文
+1. **B. Mennucci**, “Polarizable continuum model”, *WIREs Comput. Mol. Sci.* **2**, 386 (2012).  
+2. **A. V. Marenich *et&nbsp;al*.**, “Universal solvation model based on solute electron density… (SMD)”, *J. Phys. Chem. B* **113**, 6378 (2009).  
+3. **F. Lipparini *et&nbsp;al*.**, “Quantum, classical, and hybrid QM/MM calculations in solution: ddCOSMO…”, *J. Chem. Phys.* **141**, 184108 (2014).
+        """)
+
+    # ───────────────────────────────────────
+    # 6. 分子構造最適化
+    # ───────────────────────────────────────
+    with st.expander("分子構造最適化"):
+        st.markdown("""
+### 査読論文
+1. **L.-P. Wang, C.-C. Song**, “Geometry optimization made simple with translation and rotation coordinates”, *J. Chem. Phys.* **144**, 214108 (2016).
+        """)
+
+    # ───────────────────────────────────────
+    # 7. 振動解析（IR）
+    # ───────────────────────────────────────
+    with st.expander("振動解析（IR）"):
+        st.markdown("""
+### 査読論文
+1. **P. Pulay**, “Ab initio calculation of molecular vibrational intensities”, *J. Mol. Struct.* **80**, 17 (1980).  
+2. **V. Barone**, “Vibrational zero-point energies and thermodynamic functions beyond the harmonic approximation”, *J. Chem. Phys.* **120**, 3059 (2004).  
+3. **J. A. Barnes *et&nbsp;al*.**, “Solvent effect on vibrational frequencies…”, *J. Mol. Spectrosc.* **192**, 86 (1998).  
+4. **R. Improta *et&nbsp;al*.**, “Geometries and properties of excited states… TD-DFT/PCM”, *J. Chem. Phys.* **124**, 124504 (2006).
+        """)
+
+    # ───────────────────────────────────────
+    # 8. 可視化ツール
+    # ───────────────────────────────────────
+    with st.expander("可視化ツール"):
+        st.markdown("""
+### 査読論文
+1. **N. Rego, D. Koes**, “3Dmol.js: molecular visualization with WebGL”, *Bioinformatics* **31**, 1322 (2015).
+        """)
+
+    # ───────────────────────────────────────
+    # 9. GPU 版 PySCF
+    # ───────────────────────────────────────
+    with st.expander("GPU 版 PySCF"):
+        st.markdown("""
+### 査読論文
+1. **J. Wu *et&nbsp;al*.**, “Enhancing GPU-acceleration in the Python-based Simulations of Chemistry Framework”, *arXiv preprint* arXiv:2404.09452 (2024).
+        """)
+
+    # ───────────────────────────────────────
+    # 10. 参考書（和書）
+    # ───────────────────────────────────────
+    with st.expander("参考書（和書）"):
+        st.markdown("""
+- **西長亨・本田康**, 『有機化学者のための量子化学計算入門 ― Gaussian の基本と有効利用のヒント ―』, 第2版, 化学同人 (2014).
+        """)
+
+    # ───────────────────────────────────────
+    # 11. オンラインリソース
+    # ───────────────────────────────────────
+    with st.expander("オンラインリソース"):
+        st.markdown("""
+- PySCF GPU4PySCF README (最終アクセス 2024-04-28): <https://github.com/pyscf/gpu4pyscf>  
+- py3Dmol in Jupyter チュートリアル (最終アクセス 2024-04-28): <https://birdlet.github.io/2019/10/02/py3dmol_example/>
+        """)
+
+
+# テスト実行用
+if __name__ == "__main__":
+    st.set_page_config(page_title="Reference Tab Demo")
+    show_references_tab()
 
