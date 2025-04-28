@@ -20,7 +20,7 @@ def show_result_view(result, atoms):
 
 def show_analysis_tabs(result, atoms):
     """分析タブの表示"""
-    tabs = st.tabs(["軌道・電荷・IR", "分子軌道可視化", "熱力学特性", "参考文献"])
+    tabs = st.tabs(["軌道・電荷・IR", "分子軌道可視化", "熱力学特性", "UV-Visスペクトル", "参考文献"])
     
     # --- カスタムツールチップ用CSSを挿入 ---
     st.markdown("""
@@ -64,6 +64,9 @@ def show_analysis_tabs(result, atoms):
         show_thermodynamics_tab(result, atoms)
         
     with tabs[3]:
+        show_tddft_tab(result)
+        
+    with tabs[4]:
         show_references_tab()
 
 def show_orbital_charges_ir_tab(result, atoms):
@@ -381,7 +384,7 @@ def display_thermo_results(thermo_info, freq_info):
     
 
 def show_references_tab() -> None:
-    """参考文献タブの表示（再構成版）"""
+    """参考文献タブの表示"""
     st.markdown(
         '''
         <span class="tooltip" style="font-size:1.2em;">参考文献
@@ -504,6 +507,447 @@ def show_references_tab() -> None:
 - PySCF GPU4PySCF README (最終アクセス 2024-04-28): <https://github.com/pyscf/gpu4pyscf>  
 - py3Dmol in Jupyter チュートリアル (最終アクセス 2024-04-28): <https://birdlet.github.io/2019/10/02/py3dmol_example/>
         """)
+
+
+def show_tddft_tab(result):
+    """UV-Visスペクトルタブの表示"""
+    import pandas as pd
+    import plotly.graph_objects as go
+    import numpy as np
+    import streamlit as st
+    from scipy.constants import physical_constants
+    from utils.calculations import apply_solvent_effects
+
+    # result_idを取得（タブのユニーク性を確保するため）
+    result_id = st.session_state.get('result_view_id', id(result))
+    
+    # run_tddft_calculation関数を直接定義
+    def run_tddft_calculation(mf_opt, mol, n_states=10, solvent_settings=None):
+        """
+        TDDFT計算を実行し、UV-Visスペクトルを計算する
+        
+        Args:
+            mf_opt: 最適化後のメイン電子状態計算オブジェクト
+            mol: 分子オブジェクト
+            n_states: 計算する励起状態の数
+            solvent_settings: 溶媒効果の設定
+            
+        Returns:
+            dictionary: TDDFT計算結果を含む辞書
+        """
+        from pyscf import tddft, lib
+        import os
+        
+        # 並列計算設定
+        cpu_cores = st.session_state.get('num_cpu_cores', 1)
+        os.environ['OMP_NUM_THREADS'] = str(cpu_cores)
+        lib.num_threads(cpu_cores)
+        
+        # 計算リソース設定
+        mem_per_core = 2000  # コアあたりのメモリ使用量（MB）
+        total_memory = mem_per_core * cpu_cores
+        
+        # メモリ設定
+        mol.max_memory = total_memory
+        mf_opt.max_memory = total_memory
+        
+        # 溶媒効果の適用（設定されている場合）
+        if solvent_settings and solvent_settings.get('enable_solvent', False):
+            try:
+                mf_opt, _ = apply_solvent_effects(mf_opt, solvent_settings)
+            except Exception as e:
+                st.warning(f"TDDFT計算に溶媒効果を適用できませんでした: {str(e)}")
+        
+        # TDDFT計算
+        mytd = tddft.TDDFT(mf_opt)
+        mytd.nstates = n_states
+        mytd.max_memory = total_memory
+        
+        try:
+            # TDDFT計算実行
+            mytd.kernel()
+            
+            # 振動子強度の取得（NaN は 0 に置換）
+            osc_strengths = mytd.oscillator_strength()[:n_states]
+            osc_strengths = np.nan_to_num(osc_strengths)
+            
+            # 励起エネルギーをハートリー単位から eV へ変換
+            ha_2_ev = physical_constants['Hartree energy in eV'][0]
+            energies_ev = mytd.e[:n_states] * ha_2_ev
+            
+            # 波長（nm）と波数（cm-1）に変換
+            energies_nm = 1239.841984 / energies_ev
+            energies_cm = 8065.54429 * energies_ev
+            
+            # 電子状態遷移情報の抽出
+            nocc = np.count_nonzero(mf_opt.mo_occ > 0)
+            nmo = mf_opt.mo_coeff.shape[1]
+            nvirt = nmo - nocc  # 仮想軌道数
+            
+            transitions = []  # 各要素は (occupied_orbital, virtual_orbital, coefficient)
+            for state_idx in range(n_states):
+                try:
+                    xvec_raw = mytd.xy[state_idx][0]
+                    xvec = np.array(xvec_raw)
+                    xvec_flat = xvec.flatten()
+                    max_index = np.argmax(np.abs(xvec_flat))
+                    max_coeff = xvec_flat[max_index]
+                    occ_index = max_index // nvirt
+                    virt_index = max_index % nvirt
+                    transitions.append((occ_index, nocc + virt_index, max_coeff))
+                except Exception as e:
+                    transitions.append((None, None, None))
+            
+            # スペクトル表示範囲を設定（計算された波長±100nm）
+            if len(energies_nm) > 0:
+                min_nm = max(100, np.min(energies_nm) - 100)  # 最小100nmまで
+                max_nm = min(1000, np.max(energies_nm) + 100)  # 最大1000nmまで
+            else:
+                min_nm = 200
+                max_nm = 800
+                
+            # 連続スペクトル作成用のx軸範囲設定
+            min_ev = 1239.841984 / max_nm  # 波長から電子ボルトに変換
+            max_ev = 1239.841984 / min_nm
+            x_range = np.linspace(min_ev, max_ev, num=1000)
+            
+            # コーシー分布の定義
+            def cauchy(x, x0, gamma):
+                """コーシー分布（正規化済み）"""
+                return (1 / np.pi) * (gamma / ((x - x0)**2 + gamma**2))
+            
+            # 連続スペクトルの作成（コーシー分布の重ね合わせ）
+            spectral_width = 0.1  # コーシー分布の幅
+            intensity = np.zeros(x_range.size)
+            for e, f in zip(energies_ev, osc_strengths):
+                intensity += cauchy(x_range, e, spectral_width) * f
+            
+            # スペクトルの正規化（最大値を1に）
+            if np.max(intensity) > 0:
+                intensity = intensity / np.max(intensity)
+            
+            # 結果の辞書を生成
+            result = {
+                'success': True,
+                'n_states': n_states,
+                'energies_ev': energies_ev,
+                'energies_nm': energies_nm,
+                'energies_cm': energies_cm,
+                'osc_strengths': osc_strengths,
+                'transitions': transitions,
+                'x_range_ev': x_range,
+                'x_range_nm': 1239.841984 / x_range,
+                'x_range_cm': 8065.54429 * x_range,
+                'intensity': intensity,
+                'functional': mf_opt.xc if hasattr(mf_opt, 'xc') else 'Unknown',
+                'min_nm': min_nm,
+                'max_nm': max_nm
+            }
+            
+            return result
+        
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    st.markdown(
+        '''<span class="tooltip" style="font-size:1.2em;">UV-Visスペクトル計算
+        <span class="tooltiptext">
+          時間依存密度汎関数理論（TDDFT）を用いて分子の励起状態と紫外可視スペクトルを計算します。
+          この計算では分子の電子励起エネルギーと遷移双極子モーメントから吸収スペクトルを予測します。
+          計算結果は実験的なUV-Visスペクトルと比較できます。
+        </span>
+      </span>''',
+        unsafe_allow_html=True
+    )
+    
+    # セッションステートの初期化
+    if 'tddft_result' not in st.session_state:
+        st.session_state['tddft_result'] = None
+    if 'tddft_running' not in st.session_state:
+        st.session_state['tddft_running'] = False
+    if 'tddft_n_states' not in st.session_state:
+        st.session_state['tddft_n_states'] = 10
+    
+    # 計算設定
+    n_states = st.number_input(
+        '計算する励起状態数', 
+        min_value=1, 
+        max_value=30, 
+        value=st.session_state['tddft_n_states'],
+        help='より多くの状態を計算するとより広いスペクトル範囲をカバーできますが、計算負荷が増加します',
+        key=f'tddft_states_input_{result_id:x}'
+    )
+    
+    # 値の変更を検出してセッションに保存（計算は開始しない）
+    if n_states != st.session_state['tddft_n_states']:
+        st.session_state['tddft_n_states'] = n_states
+    
+    # 使用する汎関数の表示
+    functional = result['mf_opt'].xc if hasattr(result['mf_opt'], 'xc') else 'Unknown'
+    st.markdown(f"**使用する汎関数**: {functional}")
+    
+    # 溶媒設定の表示
+    solvent_info = "なし"
+    if result.get('solvent_info'):
+        solvent_info = result.get('solvent_info')
+    st.markdown(f"**溶媒効果**: {solvent_info}")
+    
+    # 計算実行ボタン
+    calc_button = st.button('TDDFT計算を実行', key=f'run_tddft_button_{result_id:x}')
+    
+    if calc_button:
+        st.session_state['tddft_running'] = True
+        with st.spinner('TDDFT計算実行中... この計算は数分〜数日かかることがあります'):
+            try:
+                # 溶媒設定をセッションから取得
+                solvent_settings = None
+                if st.session_state.get('enable_solvent', False):
+                    solvent_settings = {
+                        'enable_solvent': st.session_state.get('enable_solvent', False),
+                        'solvent_model': st.session_state.get('solvent_model', ''),
+                        'selected_solvent': st.session_state.get('selected_solvent', ''),
+                        'epsilon': st.session_state.get('custom_epsilon', 0)
+                    }
+                # TDDFT計算実行
+                tddft_result = run_tddft_calculation(
+                    result['mf_opt'],
+                    result['mol'],
+                    n_states=st.session_state['tddft_n_states'],
+                    solvent_settings=solvent_settings
+                )
+                st.session_state['tddft_result'] = tddft_result
+                st.session_state['tddft_running'] = False
+                st.rerun()  # 計算完了後に表示を更新
+            except Exception as e:
+                st.error(f"TDDFT計算中にエラーが発生しました: {str(e)}")
+                st.session_state['tddft_running'] = False
+    
+    # 計算結果の表示
+    tddft_result = st.session_state.get('tddft_result')
+    
+    if st.session_state.get('tddft_running'):
+        # 計算中の表示
+        st.info('TDDFT計算実行中... しばらくお待ちください。')
+    elif tddft_result is not None:
+        if tddft_result.get('success', False):
+            
+            # スペクトルデータをDataFrameに変換（連続スペクトル）
+            spectral_data = {
+                "Excitation Energy (eV)": tddft_result['x_range_ev'].tolist(),
+                "Intensity": tddft_result['intensity'].tolist(),
+                "Exchange-Correlation Functional": [tddft_result['functional']] * len(tddft_result['x_range_ev']),
+                "Excitation Energy (nm)": tddft_result['x_range_nm'].tolist(),
+                "Excitation Energy (cm-1)": tddft_result['x_range_cm'].tolist()
+            }
+            df_spectral = pd.DataFrame(spectral_data)
+            
+            # 各励起状態のデータをDataFrameに変換
+            osc_data = {
+                "Exchange-Correlation Functional": [],
+                "State": [],
+                "Excitation Energy (eV)": [],
+                "Excitation Energy (nm)": [],
+                "Excitation Energy (cm-1)": [],
+                "Oscillator Strength": [],
+                "Occupied Orbital": [],
+                "Virtual Orbital": [],
+                "Coefficient": []
+            }
+            
+            for i, (energy_ev, energy_nm, energy_cm, osc, trans) in enumerate(
+                zip(tddft_result['energies_ev'], tddft_result['energies_nm'], 
+                    tddft_result['energies_cm'], tddft_result['osc_strengths'], 
+                    tddft_result['transitions'])):
+                
+                occ, virt, coeff = trans
+                osc_data["Exchange-Correlation Functional"].append(tddft_result['functional'])
+                osc_data["State"].append(i+1)
+                osc_data["Excitation Energy (eV)"].append(energy_ev)
+                osc_data["Excitation Energy (nm)"].append(energy_nm)
+                osc_data["Excitation Energy (cm-1)"].append(energy_cm)
+                osc_data["Oscillator Strength"].append(osc)
+                osc_data["Occupied Orbital"].append(occ)
+                osc_data["Virtual Orbital"].append(virt)
+                osc_data["Coefficient"].append(coeff)
+            
+            df_osc = pd.DataFrame(osc_data)
+            
+            # Plotlyでインタラクティブなスペクトル表示
+            fig = go.Figure()
+            
+            # eV単位のトレース
+            fig.add_trace(go.Scatter(
+                x=df_spectral["Excitation Energy (eV)"],
+                y=df_spectral["Intensity"],
+                mode='lines',
+                name='eV',
+                line=dict(color='blue', width=2)
+            ))
+            
+            # 各励起状態を縦線で表示（eV）
+            for i, row in df_osc.iterrows():
+                if row["Oscillator Strength"] > 0.01:  # 振動子強度が一定以上の状態のみ表示
+                    fig.add_trace(go.Scatter(
+                        x=[row["Excitation Energy (eV)"], row["Excitation Energy (eV)"]],
+                        y=[0, row["Oscillator Strength"] / df_osc["Oscillator Strength"].max()],
+                        mode='lines',
+                        line=dict(color='red', width=1, dash='dash'),
+                        name=f'State {int(row["State"])}',
+                        showlegend=False
+                    ))
+            
+            # nm単位のトレース
+            fig.add_trace(go.Scatter(
+                x=df_spectral["Excitation Energy (nm)"],
+                y=df_spectral["Intensity"],
+                mode='lines',
+                name='nm',
+                line=dict(color='green', width=2),
+                visible=False
+            ))
+            
+            # 各励起状態を縦線で表示（nm）
+            for i, row in df_osc.iterrows():
+                if row["Oscillator Strength"] > 0.01:
+                    fig.add_trace(go.Scatter(
+                        x=[row["Excitation Energy (nm)"], row["Excitation Energy (nm)"]],
+                        y=[0, row["Oscillator Strength"] / df_osc["Oscillator Strength"].max()],
+                        mode='lines',
+                        line=dict(color='red', width=1, dash='dash'),
+                        showlegend=False,
+                        visible=False
+                    ))
+            
+            # cm^-1単位のトレース
+            fig.add_trace(go.Scatter(
+                x=df_spectral["Excitation Energy (cm-1)"],
+                y=df_spectral["Intensity"],
+                mode='lines',
+                name='cm⁻¹',
+                line=dict(color='purple', width=2),
+                visible=False
+            ))
+            
+            # 各励起状態を縦線で表示（cm^-1）
+            for i, row in df_osc.iterrows():
+                if row["Oscillator Strength"] > 0.01:
+                    fig.add_trace(go.Scatter(
+                        x=[row["Excitation Energy (cm-1)"], row["Excitation Energy (cm-1)"]],
+                        y=[0, row["Oscillator Strength"] / df_osc["Oscillator Strength"].max()],
+                        mode='lines',
+                        line=dict(color='red', width=1, dash='dash'),
+                        showlegend=False,
+                        visible=False
+                    ))
+            
+            # ボタンとドロップダウンメニューの作成
+            n_peaks = sum(1 for f in df_osc["Oscillator Strength"] if f > 0.01)
+            
+            # 波長範囲
+            min_nm = tddft_result.get('min_nm', 200)
+            max_nm = tddft_result.get('max_nm', 800)
+            
+            # 単位切り替えボタンを追加
+            updatemenus = [
+                dict(
+                    active=0,
+                    buttons=list([
+                        dict(label="eV",
+                            method="update",
+                            args=[{"visible": [True] + [True] * n_peaks + 
+                                          [False] * (n_peaks) + [False] * (n_peaks + 1)},
+                                  {"title": "UV-Vis Spectrum (eV)",
+                                   "xaxis": {"title": "Excitation Energy (eV)"}}]),
+                        dict(label="nm",
+                            method="update",
+                            args=[{"visible": [False] + [False] * n_peaks + 
+                                          [True] * (n_peaks + 1) + [False] * n_peaks},
+                                  {"title": "UV-Vis Spectrum (nm)",
+                                   "xaxis": {"title": "Wavelength (nm)", 
+                                            "autorange": "reversed", 
+                                            "range": [max_nm, min_nm]}}]),
+                        dict(label="cm⁻¹",
+                            method="update",
+                            args=[{"visible": [False] * (n_peaks + 1) + 
+                                          [False] * (n_peaks + 1) + [True] * (n_peaks + 1)},
+                                  {"title": "UV-Vis Spectrum (cm⁻¹)",
+                                   "xaxis": {"title": "Wavenumber (cm⁻¹)"}}]),
+                    ]),
+                    direction="down",
+                    pad={"r": 10, "t": 10},
+                    showactive=True,
+                    x=0.1,
+                    xanchor="left",
+                    y=1.1,
+                    yanchor="top"
+                ),
+            ]
+            
+            # レイアウト設定
+            fig.update_layout(
+                title="UV-Vis Spectrum (eV)",
+                xaxis_title="Excitation Energy (eV)",
+                yaxis_title="Normalized Intensity",
+                updatemenus=updatemenus,
+                legend=dict(
+                    yanchor="top",
+                    y=0.99,
+                    xanchor="right",
+                    x=0.99
+                ),
+                margin=dict(l=50, r=50, t=80, b=50),
+            )
+            
+            # スペクトルの表示
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # 各励起状態の詳細情報を表として表示
+            st.subheader("励起状態の詳細")
+            
+            # 振動子強度でソートして表示
+            df_osc_sorted = df_osc.sort_values(by="Oscillator Strength", ascending=False).reset_index(drop=True)
+            df_display = df_osc_sorted[["State", "Excitation Energy (eV)", "Excitation Energy (nm)", 
+                                     "Oscillator Strength", "Occupied Orbital", "Virtual Orbital"]]
+            
+            # 表示用にカラム名を日本語化
+            df_display.columns = ["状態", "励起エネルギー (eV)", "波長 (nm)", 
+                                "振動子強度", "占有軌道", "仮想軌道"]
+            
+            # 表の表示
+            st.dataframe(df_display, use_container_width=True)
+            
+            # データのダウンロードボタン
+            csv_spectral = df_spectral.to_csv(index=False).encode('utf-8')
+            csv_osc = df_osc.to_csv(index=False).encode('utf-8')
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    label="連続スペクトルデータをダウンロード",
+                    data=csv_spectral,
+                    file_name="spectral_data.csv",
+                    mime="text/csv",
+                    key=f'download_spectral_{result_id:x}'
+                )
+            with col2:
+                st.download_button(
+                    label="励起状態データをダウンロード",
+                    data=csv_osc,
+                    file_name="oscillator_strengths.csv",
+                    mime="text/csv",
+                    key=f'download_osc_{result_id:x}'
+                )
+            
+        else:
+            # 計算失敗時のエラーメッセージ表示
+            st.error(f"TDDFT計算に失敗しました: {tddft_result.get('error', '不明なエラー')}")
+    else:
+        # 計算前の状態
+        st.info('「TDDFT計算を実行」ボタンをクリックすると、UV-Visスペクトル計算を実行します。')
+        st.warning('注意: TDDFT計算は計算負荷が高く、分子サイズや計算設定によっては数分～数十分かかる場合があります。')
 
 
 # テスト実行用

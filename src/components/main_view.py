@@ -188,4 +188,7 @@ def show_results(atoms, input_method, pubchem_query, smiles):
             """)
         else:
             # 分析タブを表示
+            # 一意のIDを生成してセッションに保存
+            if 'result_view_id' not in st.session_state:
+                st.session_state['result_view_id'] = id(result)
             show_result_view(result, atoms)

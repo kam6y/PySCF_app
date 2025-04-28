@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 import os
 import streamlit as st
-from pyscf import gto, dft, geomopt, lib
+import time
+from scipy.constants import physical_constants
+from pyscf import gto, dft, geomopt, lib, tddft
 
 # OpenMP環境変数設定のためのos.environをインポート
 import os
@@ -309,3 +311,125 @@ def run_and_plot_ir_spectrum(mf_opt, mol, atoms, solvent_settings=None):
     except Exception as e:
         result['detail'] = str(e)
     return result
+
+
+def run_tddft_calculation(mf_opt, mol, n_states=10, solvent_settings=None):
+    """
+    TDDFT計算を実行し、UV-Visスペクトルを計算する
+    
+    Args:
+        mf_opt: 最適化後のメイン電子状態計算オブジェクト
+        mol: 分子オブジェクト
+        n_states: 計算する励起状態の数
+        solvent_settings: 溶媒効果の設定
+        
+    Returns:
+        dictionary: TDDFT計算結果を含む辞書
+    """
+    # 並列計算設定
+    cpu_cores = st.session_state.get('num_cpu_cores', 1)
+    os.environ['OMP_NUM_THREADS'] = str(cpu_cores)
+    lib.num_threads(cpu_cores)
+    
+    # 計算リソース設定
+    mem_per_core = 2000  # コアあたりのメモリ使用量（MB）
+    total_memory = mem_per_core * cpu_cores
+    
+    # メモリ設定
+    mol.max_memory = total_memory
+    mf_opt.max_memory = total_memory
+    
+    # 溶媒効果の適用（設定されている場合）
+    if solvent_settings and solvent_settings.get('enable_solvent', False):
+        try:
+            mf_opt, _ = apply_solvent_effects(mf_opt, solvent_settings)
+        except Exception as e:
+            st.warning(f"TDDFT計算に溶媒効果を適用できませんでした: {str(e)}")
+    
+    start_time = time.time()
+    
+    # TDDFT計算
+    mytd = tddft.TDDFT(mf_opt)
+    mytd.nstates = n_states
+    mytd.max_memory = total_memory
+    
+    try:
+        # TDDFT計算実行
+        mytd.kernel()
+        
+        # 振動子強度の取得（NaN は 0 に置換）
+        osc_strengths = mytd.oscillator_strength()[:n_states]
+        osc_strengths = np.nan_to_num(osc_strengths)
+        
+        # 励起エネルギーをハートリー単位から eV へ変換
+        ha_2_ev = physical_constants['Hartree energy in eV'][0]
+        energies_ev = mytd.e[:n_states] * ha_2_ev
+        
+        # 波長（nm）と波数（cm-1）に変換
+        energies_nm = 1239.841984 / energies_ev
+        energies_cm = 8065.54429 * energies_ev
+        
+        # 電子状態遷移情報の抽出
+        nocc = np.count_nonzero(mf_opt.mo_occ > 0)
+        nmo = mf_opt.mo_coeff.shape[1]
+        nvirt = nmo - nocc  # 仮想軌道数
+        
+        transitions = []  # 各要素は (occupied_orbital, virtual_orbital, coefficient)
+        for state_idx in range(n_states):
+            try:
+                xvec_raw = mytd.xy[state_idx][0]
+                xvec = np.array(xvec_raw)
+                xvec_flat = xvec.flatten()
+                max_index = np.argmax(np.abs(xvec_flat))
+                max_coeff = xvec_flat[max_index]
+                occ_index = max_index // nvirt
+                virt_index = max_index % nvirt
+                transitions.append((occ_index, nocc + virt_index, max_coeff))
+            except Exception as e:
+                transitions.append((None, None, None))
+        
+        # 連続スペクトル作成用のx軸範囲設定
+        x_min_eV = 1.5  # 約825 nm
+        x_max_eV = 6.5  # 約190 nm
+        x_range = np.linspace(x_min_eV, x_max_eV, num=1000)
+        
+        # コーシー分布の定義
+        def cauchy(x, x0, gamma):
+            """コーシー分布（正規化済み）"""
+            return (1 / np.pi) * (gamma / ((x - x0)**2 + gamma**2))
+        
+        # 連続スペクトルの作成（コーシー分布の重ね合わせ）
+        spectral_width = 0.1  # コーシー分布の幅
+        intensity = np.zeros(x_range.size)
+        for e, f in zip(energies_ev, osc_strengths):
+            intensity += cauchy(x_range, e, spectral_width) * f
+        
+        # スペクトルの正規化（最大値を1に）
+        if np.max(intensity) > 0:
+            intensity = intensity / np.max(intensity)
+        
+        # 結果の辞書を生成
+        result = {
+            'success': True,
+            'calc_time': time.time() - start_time,
+            'n_states': n_states,
+            'energies_ev': energies_ev,
+            'energies_nm': energies_nm,
+            'energies_cm': energies_cm,
+            'osc_strengths': osc_strengths,
+            'transitions': transitions,
+            'x_range_ev': x_range,
+            'x_range_nm': 1239.841984 / x_range,
+            'x_range_cm': 8065.54429 * x_range,
+            'intensity': intensity,
+            'functional': mf_opt.xc if hasattr(mf_opt, 'xc') else 'Unknown'
+        }
+        
+        return result
+    
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e),
+            'calc_time': time.time() - start_time
+        }
