@@ -81,14 +81,14 @@ def initialize_session_state():
 def main():
     # ページ設定
     st.set_page_config(page_title="Pyscf_Front", layout="wide")
-    st.title('Pyscf_Front')
+    st.title('Pyscf_Front_DFT')
     
     # セッションの初期化
     initialize_session_state()
     
     # アプリ説明
     st.markdown("主に PySCF と Streamlit を使用")
-    st.markdown("計算時間と精度は選択した計算設定に依存します。かなり弱いCPUで計算しているので計算設定がリッチだと計算が終わらずにエラーを吐く場合があります。")
+    st.markdown("計算時間と精度は選択した計算設定に依存します。Streamlit Cloudを使用している場合、かなり弱いCPUで計算しているので計算設定がリッチだと計算が終わらずにエラーを吐く場合があります。")
     
 
     # DFT計算の理論について

@@ -124,16 +124,15 @@ Docker環境での並列計算を調整するには:
 
 ## ToDo
 
-- symmetry=True
-- サイクルの回数を明記
 - 参考文献
+- 対称性の加味 symmetry=True
+- NMRスペクトルの計算(拡張モジュール)
 - UVスペクトル可視化(TDDFT)
+- サイクルの回数を明記
 - ECP（Effective Core Potential : 有効内殻ポテンシャル）(金属錯体)
 - CASSCF/CASCI
-- NMRスペクトルの計算(拡張モジュール)
 
 OS版で行うこと
-- UVスペクトル可視化(TDDFT)
 - GPU版の実装
 
 ## ライセンス
