@@ -124,9 +124,9 @@ Docker環境での並列計算を調整するには:
 
 ## ToDo
 
-- 参考文献
 - NMRスペクトルの計算(拡張モジュール)
-- UVスペクトル可視化(TDDFT)
+- UVスペクトル可視化(TDDFT)←実装中
+- 開発者向けに構造最適化をパスするルートを追加
 - サイクルの回数を明記
 - ECP（Effective Core Potential : 有効内殻ポテンシャル）(金属錯体)
 - CASSCF/CASCI
