@@ -113,13 +113,24 @@ def show_main_view(sidebar_values):
                         st.rerun()
                         
                     except Exception as e:
+                        import traceback
                         error_message = str(e)
+                        error_traceback = traceback.format_exc()
+                        
                         if "TypeError: first argument must be a string" in error_message or "gto.basis.load_basis" in error_message:
                             st.error(f"基底関数セットのエラーが発生しました: {error_message}\n\n選択した基底関数 '{basis_set}' がPySCFで正しく処理できなかった可能性があります。\n\n一般的な解決策:\n1. 標準的な表記を使用しているか確認してください\n2. より一般的な基底関数（'sto-3g'や'6-31g'など）を試してみてください")
                         elif "KeyError" in error_message and "xc_code" in error_message:
                             st.error(f"汎関数のエラーが発生しました: {error_message}\n\n選択した汎関数 '{functional}' がPySCFで正しく処理できなかった可能性があります。\n\n一般的な解決策:\n1. 標準的な表記を使用しているか確認してください\n2. より一般的な汎関数（'b3lyp'や'pbe0'など）を試してみてください")
+                        elif "too many values to unpack" in error_message:
+                            st.error(f"スピン多重度設定エラーが発生しました: {error_message}")
+                            st.warning(f"現在のスピン多重度: {spin}。スピン多重度が1より大きい場合、特定の計算で問題が発生することがあります。スピン多重度を1に設定して再試行してください。")
+                        elif "ValueError: grid search" in error_message:
+                            st.error(f"グリッド検索エラーが発生しました: {error_message}")
+                            st.warning("分子構造や計算パラメータに問題がある可能性があります。構造を再確認し、より単純な基底関数や汎関数を試してみてください。")
                         else:
                             st.error(f'計算中にエラーが発生しました: {error_message}')
+                            with st.expander("エラー詳細（開発者向け）"):
+                                st.code(error_traceback)
             
             # 成功メッセージの表示（計算完了後のページリロード時）
             if st.session_state.get('calculation_success', False):

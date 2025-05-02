@@ -30,10 +30,11 @@ def show_analysis_tabs(result, atoms):
       display: inline-block;
       border-bottom: 1px dotted #555;
       cursor: help;
+      font-size: 1.6em;
     }
     .tooltip .tooltiptext {
       visibility: hidden;
-      width: 30vw;
+      width: 50vw;
       background-color: #222;
       color: #fff;
       text-align: left;
@@ -45,7 +46,7 @@ def show_analysis_tabs(result, atoms):
       left: 0;
       opacity: 0;
       transition: opacity 0.3s;
-      font-size: 0.7em;
+      font-size: 0.6em;
     }
     .tooltip:hover .tooltiptext {
       visibility: visible;
@@ -72,7 +73,7 @@ def show_analysis_tabs(result, atoms):
 def show_orbital_charges_ir_tab(result, atoms):
     """軌道・電荷・IRタブの表示"""
     st.markdown(
-        '''<span class="tooltip" style="font-size:1.2em;">分子軌道エネルギー準位図
+        '''<span class="tooltip">分子軌道エネルギー準位図
   <span class="tooltiptext">
     分子軌道エネルギー準位図は、各分子軌道のエネルギーを可視化したものです。青色の線はHOMO（最高被占有分子軌道）、赤色の線はLUMO（最低空分子軌道）を示し、緑色の矢印は電子励起に必要な最小エネルギー差（HOMO-LUMOギャップ）を表します。
   </span>
@@ -86,7 +87,7 @@ def show_orbital_charges_ir_tab(result, atoms):
     st.markdown("---")
     
     st.markdown(
-        '''<span class="tooltip" style="font-size:1.2em;">Mulliken電荷
+        '''<span class="tooltip">Mulliken電荷
   <span class="tooltiptext">
     Mulliken電荷は、各原子における電子の偏り（部分電荷）を示します。正の値は電子が少なく陽性、負の値は電子が多く陰性であることを意味します。棒グラフで各原子の電荷分布を視覚的に比較できます。
   </span>
@@ -116,7 +117,7 @@ def show_orbital_charges_ir_tab(result, atoms):
     st.markdown("---")
     
     st.markdown(
-        '''<span class="tooltip" style="font-size:1.2em;">IR Spectrum (Vibrational Analysis)
+        '''<span class="tooltip">IR Spectrum (Vibrational Analysis)
   <span class="tooltiptext">
     IRスペクトル（赤外振動スペクトル）は、分子の振動モードごとの赤外吸収強度と周波数を示します。主なピークは分子内の特定の結合や構造に対応し、分子の構造解析や同定に利用されます。構造最適化が問題なく出来ているかの確認のために行います。エラーを吐いた場合は条件を見直してください。
   </span>
@@ -142,7 +143,15 @@ def show_orbital_charges_ir_tab(result, atoms):
             solvent_settings=solvent_settings
         )
         if ir_result['detail']:
-            st.error(f'IRスペクトル計算中にエラーが発生しました: {ir_result["detail"]}')
+            error_msg = ir_result["detail"]
+            st.error(f'IRスペクトル計算中にエラーが発生しました: {error_msg}')
+            
+            # スピン多重度に関連するエラーメッセージを追加
+            if "too many values to unpack" in error_msg:
+                spin_value = result['mol'].spin + 1 if hasattr(result['mol'], 'spin') else "不明"
+                st.warning(f"このエラーはスピン多重度（現在: {spin_value}）の設定が原因で発生した可能性があります。スピン多重度を1に設定して再計算することをお勧めします。")
+            elif "スピン多重度" in error_msg:
+                st.warning("高いスピン多重度を使用する場合は、サイドバーで新しい計算を開始する際にスピン多重度を1に設定してください。")
         else:
             # セッションにIR計算結果を保存（熱力学特性計算で使用）
             st.session_state['ir_result'] = ir_result
@@ -161,7 +170,7 @@ def show_orbital_charges_ir_tab(result, atoms):
 def show_molecular_orbital_tab(result):
     """分子軌道可視化タブの表示"""
     st.markdown(
-        '''<span class="tooltip" style="font-size:1.2em;">分子軌道3D可視化
+        '''<span class="tooltip">分子軌道3D可視化
   <span class="tooltiptext">
     分子軌道（HOMO, LUMO, その前後）を3D等値面で可視化します。<br>
     ドロップダウンから軌道を選択すると、該当軌道の電子雲分布（CUBEファイル）が3D表示されます。<br>
@@ -219,7 +228,7 @@ def show_molecular_orbital_tab(result):
         if viz_result['success']:
             view = viz_result['view']
             st.components.v1.html(view._make_html(), height=520)
-            st.caption(f"{orbital_name} エネルギー: {orbital_energies[orbital_name]:.3f} eV")
+            st.caption(f"{orbital_name} 軌道番号: {orbital_index} エネルギー: {orbital_energies[orbital_name]:.3f} eV")
         else:
             st.error(f"分子軌道の可視化に失敗しました: {viz_result['error']}")
             
@@ -236,7 +245,7 @@ def show_thermodynamics_tab(result, atoms=None):
     from pyscf import lib
     
     st.markdown(
-        '''<span class="tooltip" style="font-size:1.2em;">熱力学特性
+        '''<span class="tooltip">熱力学特性
   <span class="tooltiptext">
     熱力学特性は、分子の安定性とエネルギーに関する重要な情報を提供します。ゼロ点エネルギー、エンタルピー、エントロピー、自由エネルギーなどが含まれます。これらの値は温度298.15 K、圧力1気圧での計算結果です。
   </span>
@@ -263,6 +272,14 @@ def show_thermodynamics_tab(result, atoms=None):
     # まだ計算していない場合は計算を実行
     with st.spinner('熱力学特性を計算中...この処理には時間がかかることがあります'):
         try:
+            # スピン多重度のチェック
+            from pyscf import dft
+            if hasattr(mol, 'spin') and mol.spin > 0 and isinstance(mf, dft.rks.RKS):
+                # RKSでスピン多重度が1より大きい場合は警告
+                st.error(f"スピン多重度が{mol.spin+1}の場合、熱力学特性計算にはUKS計算が必要です。")
+                st.warning("スピン多重度を1に設定して再計算するか、適切なUKS計算を使用してください。")
+                return
+                
             # 並列計算設定
             cpu_cores = st.session_state.get('num_cpu_cores', 1)
             
@@ -280,17 +297,25 @@ def show_thermodynamics_tab(result, atoms=None):
             mol.max_memory = total_memory
             mf.max_memory = total_memory
             
-            # ヘシアン計算器を初期化
-            hess = rks.Hessian(mf)
-            
-            # ヘシアン行列を計算
-            hess_matrix = hess.kernel()
-            
-            # 振動解析
-            freq_info = thermo.harmonic_analysis(mol, hess_matrix)
-            
-            # 熱力学特性の計算 (298.15 K, 1 atm)
-            thermo_info = thermo.thermo(mf, freq_info['freq_au'], 298.15, 101325)
+            try:
+                # ヘシアン計算器を初期化
+                hess = rks.Hessian(mf)
+                
+                # ヘシアン行列を計算
+                hess_matrix = hess.kernel()
+                
+                # 振動解析
+                freq_info = thermo.harmonic_analysis(mol, hess_matrix)
+                
+                # 熱力学特性の計算 (298.15 K, 1 atm)
+                thermo_info = thermo.thermo(mf, freq_info['freq_au'], 298.15, 101325)
+            except ValueError as e:
+                if "too many values to unpack" in str(e):
+                    st.error(f"熱力学特性の計算に失敗しました: {str(e)}")
+                    st.warning("現在、熱力学特性の計算はスピン多重度を1のときのみ可能です。")
+                    return
+                else:
+                    raise e
             
             # 計算結果をセッションに保存
             st.session_state[thermo_key] = {
@@ -387,7 +412,7 @@ def show_references_tab() -> None:
     """参考文献タブの表示"""
     st.markdown(
         '''
-        <span class="tooltip" style="font-size:1.2em;">参考文献
+        <span class="tooltip">参考文献
           <span class="tooltiptext">
             このアプリケーションの開発と理論的背景に関連する主要文献です。
             各セクションはテーマごとに「査読論文 → 書籍 → オンラインリソース」の順で並びます。
@@ -653,7 +678,7 @@ def show_tddft_tab(result):
             }
 
     st.markdown(
-        '''<span class="tooltip" style="font-size:1.2em;">UV-Visスペクトル計算
+        '''<span class="tooltip">UV-Visスペクトル計算
         <span class="tooltiptext">
           時間依存密度汎関数理論（TDDFT）を用いて分子の励起状態と紫外可視スペクトルを計算します。
           この計算では分子の電子励起エネルギーと遷移双極子モーメントから吸収スペクトルを予測します。
@@ -903,7 +928,7 @@ def show_tddft_tab(result):
             st.plotly_chart(fig, use_container_width=True)
             
             # 各励起状態の詳細情報を表として表示
-            st.subheader("励起状態の詳細")
+            st.markdown("**励起状態の詳細**")
             
             # 振動子強度でソートして表示
             df_osc_sorted = df_osc.sort_values(by="Oscillator Strength", ascending=False).reset_index(drop=True)
@@ -943,11 +968,15 @@ def show_tddft_tab(result):
             from utils.calculations import calculate_molecule_color
             
             st.markdown("---")
-            st.subheader("分子の色の可視化")
-            st.markdown("""
+            st.markdown(
+            '''<span class="tooltip">分子の色の可視化
+            <span class="tooltiptext">
             このセクションでは、計算された吸収スペクトルから分子の色を推定します。
-            吸光度の強度を調整して色の濃さを変更できます。
-            """)
+            吸光度の強度を調整して色の濃さを変更できます
+            </span>
+            </span>''',
+                unsafe_allow_html=True
+            )
             
             # 初期値の設定（より適切な初期値を使用）
             if 'color_multiplier' not in st.session_state:
@@ -970,7 +999,7 @@ def show_tddft_tab(result):
                         min_value=0.0,
                         max_value=100.0,
                         value=st.session_state['color_multiplier'],
-                        step=0.1,
+                        step=1.0,
                         format="%.1f",
                         key=f'color_multiplier_input_{result_id:x}',
                         help='吸光度の強度を調整します。大きい値ほど色が濃くなります。小さい値では薄く、大きい値では濃くなります。'
@@ -1007,8 +1036,8 @@ def show_tddft_tab(result):
                         x=color_result['wavelength_range'],
                         y=color_result['transmittance'],
                         mode='lines',
-                        name='透過率',
-                        line=dict(color='black', width=2)
+                        name='透過率(倍率適用後)',
+                        line=dict(color='orange', width=2)
                     ))
                     
                     # X, Y, Z等色関数（透過率と掛け合わせたもの）
@@ -1022,35 +1051,37 @@ def show_tddft_tab(result):
                     
                     fig.add_trace(go.Scatter(
                         x=wavelength, y=xBar,
-                        mode='lines', name='X×透過率 (赤成分)',
-                        line=dict(color='red', width=1)
+                        mode='lines', name='X×透過率',
+                        line=dict(color='red', width=2)
                     ))
                     
                     fig.add_trace(go.Scatter(
                         x=wavelength, y=yBar,
-                        mode='lines', name='Y×透過率 (緑成分)',
-                        line=dict(color='green', width=1)
+                        mode='lines', name='Y×透過率',
+                        line=dict(color='green', width=2)
                     ))
                     
                     fig.add_trace(go.Scatter(
                         x=wavelength, y=zBar,
-                        mode='lines', name='Z×透過率 (青成分)',
-                        line=dict(color='blue', width=1)
+                        mode='lines', name='Z×透過率',
+                        line=dict(color='blue', width=2)
                     ))
                     
-                    # グラフのレイアウト設定
                     fig.update_layout(
                         title=f'分光透過率と等色関数 (倍率: {st.session_state["color_multiplier"]:.1f})',
                         xaxis_title='波長 (nm)',
                         yaxis_title='相対強度',
-                        legend=dict(x=0.02, y=0.98),
+                        legend=dict(
+                            x=0.98,        # 右端寄せ
+                            y=0.98,        # 上端寄せ
+                            xanchor='right',  # x 座標を右端基準に
+                            yanchor='top',    # y 座標を上端基準に
+                        ),
                         margin=dict(l=0, r=0, t=40, b=0),
-                        # 波長範囲を明示的に380-780nmに固定
                         xaxis=dict(range=[380, 780]),
-                        # 相対強度の範囲を0-1に設定
                         yaxis=dict(range=[0, 1.05])
                     )
-                    
+
                     st.plotly_chart(fig, use_container_width=True)
                 
                 # 色の意味に関する注意事項
@@ -1076,4 +1107,5 @@ def show_tddft_tab(result):
 if __name__ == "__main__":
     st.set_page_config(page_title="Reference Tab Demo")
     show_references_tab()
+
 

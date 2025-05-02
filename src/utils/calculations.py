@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import streamlit as st
 import time
+import traceback
 from scipy.constants import physical_constants
 from pyscf import gto, dft, geomopt, lib, tddft
 
@@ -204,6 +205,12 @@ def run_and_plot_ir_spectrum(mf_opt, mol, atoms, solvent_settings=None):
     
     result = {}
     try:
+        # スピン多重度のチェック
+        if hasattr(mol, 'spin') and mol.spin > 0 and isinstance(mf_opt, dft.rks.RKS):
+            # RKSでスピン多重度が1より大きい場合は警告
+            result['detail'] = f"スピン多重度が{mol.spin+1}の場合、UKS計算が必要です。スピン多重度を1に設定するか、適切なUKS計算を使用してください。"
+            return result
+            
         # 計算リソース設定
         mem_per_core = 2000  # コアあたりのメモリ使用量（MB）
         total_memory = mem_per_core * cpu_cores
@@ -308,8 +315,15 @@ def run_and_plot_ir_spectrum(mf_opt, mol, atoms, solvent_settings=None):
         else:
             result['mode_df'] = None
         result['detail'] = None
+    except ValueError as e:
+        # スピン多重度関連のエラーを特別にハンドリング
+        if "too many values to unpack" in str(e):
+            result['detail'] = f"スピン設定エラー: {str(e)} - 現在はスピン多重度が１の時のみIR spectrumが表示できます。"
+        else:
+            result['detail'] = f"値エラー: {str(e)}"
     except Exception as e:
-        result['detail'] = str(e)
+        # スタックトレースを取得して詳細なエラー情報を提供
+        result['detail'] = f"{str(e)}\n{traceback.format_exc()}"
     return result
 
 
