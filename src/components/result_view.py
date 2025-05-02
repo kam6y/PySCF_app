@@ -598,13 +598,13 @@ def show_tddft_tab(result):
                 except Exception as e:
                     transitions.append((None, None, None))
             
-            # スペクトル表示範囲を設定（計算された波長±100nm）
+            # スペクトル表示範囲を設定（可視光領域380-780nmを含みつつ、計算された全ピークも含める）
             if len(energies_nm) > 0:
-                min_nm = max(100, np.min(energies_nm) - 100)  # 最小100nmまで
-                max_nm = min(1000, np.max(energies_nm) + 100)  # 最大1000nmまで
+                min_nm = min(380, np.min(energies_nm) - 100)  # 可視光領域開始か計算値-100の小さい方
+                max_nm = max(780, np.max(energies_nm) + 100)  # 可視光領域終了か計算値+100の大きい方
             else:
-                min_nm = 200
-                max_nm = 800
+                min_nm = 380
+                max_nm = 780
                 
             # 連続スペクトル作成用のx軸範囲設定
             min_ev = 1239.841984 / max_nm  # 波長から電子ボルトに変換
@@ -684,10 +684,8 @@ def show_tddft_tab(result):
     # 値の変更を検出してセッションに保存（計算は開始しない）
     if n_states != st.session_state['tddft_n_states']:
         st.session_state['tddft_n_states'] = n_states
-    
-    # 使用する汎関数の表示
-    functional = result['mf_opt'].xc if hasattr(result['mf_opt'], 'xc') else 'Unknown'
-    st.markdown(f"**使用する汎関数**: {functional}")
+
+    st.markdown(f"**使用する基底関数・汎関数はDFT計算時のものを使います。**")
     
     # 溶媒設定の表示
     solvent_info = "なし"
@@ -846,9 +844,9 @@ def show_tddft_tab(result):
             # ボタンとドロップダウンメニューの作成
             n_peaks = sum(1 for f in df_osc["Oscillator Strength"] if f > 0.01)
             
-            # 波長範囲
-            min_nm = tddft_result.get('min_nm', 200)
-            max_nm = tddft_result.get('max_nm', 800)
+            # 表示範囲用（380-750nm固定）
+            display_min_nm = 380
+            display_max_nm = 750
             
             # 単位切り替えボタンを追加
             updatemenus = [
@@ -868,7 +866,7 @@ def show_tddft_tab(result):
                                   {"title": "UV-Vis Spectrum (nm)",
                                    "xaxis": {"title": "Wavelength (nm)", 
                                             "autorange": "reversed", 
-                                            "range": [max_nm, min_nm]}}]),
+                                            "range": [display_max_nm, display_min_nm]}}]),
                         dict(label="cm⁻¹",
                             method="update",
                             args=[{"visible": [False] * (n_peaks + 1) + 
@@ -940,6 +938,128 @@ def show_tddft_tab(result):
                     mime="text/csv",
                     key=f'download_osc_{result_id:x}'
                 )
+            
+            # === 分子の色可視化セクション ===
+            from utils.calculations import calculate_molecule_color
+            
+            st.markdown("---")
+            st.subheader("分子の色の可視化")
+            st.markdown("""
+            このセクションでは、計算された吸収スペクトルから分子の色を推定します。
+            スライダーを使用して吸光度の強度を調整できます。
+            """)
+            
+            # 初期値の設定（より適切な初期値を使用）
+            if 'color_multiplier' not in st.session_state:
+                st.session_state['color_multiplier'] = 5.0  # デフォルト値を調整
+            
+            # 吸光度強度調整用数値入力ボックス
+            multiplier = st.number_input(
+                '吸光度強度倍率:',
+                min_value=0.0,
+                max_value=30.0,
+                value=st.session_state['color_multiplier'],
+                step=0.1,
+                format="%.1f",
+                key=f'color_multiplier_input_{result_id:x}',
+                help='吸光度の強度を調整します。大きい値ほど色が濃くなります。小さい値では薄く、大きい値では濃くなります。'
+            )
+            
+            # セッションに保存
+            st.session_state['color_multiplier'] = multiplier
+            
+            # 色計算の実行
+            color_result = calculate_molecule_color(tddft_result, multiplier=multiplier)
+            
+            if color_result.get('success', False):
+                # 2列レイアウト
+                col1, col2 = st.columns([1, 2])
+                
+                with col1:
+                    # カラーパッチの表示
+                    st.image(f"data:image/png;base64,{color_result['color_img']}", caption="推定色")
+                    
+                    # RGB値とHEX値の表示
+                    rgb = color_result['rgb']
+                    hex_color = color_result['rgb_hex']
+                    st.markdown(f"""
+                    **RGB値**: [{int(rgb[0])}, {int(rgb[1])}, {int(rgb[2])}]  
+                    **HEX値**: {hex_color}
+                    """)
+                
+                with col2:
+                    # スペクトルと等色関数のグラフ
+                    fig = go.Figure()
+                    
+                    # 吸収スペクトル（計算結果から）
+                    fig.add_trace(go.Scatter(
+                        x=color_result['wavelength_range'],
+                        y=color_result['absorption'],
+                        mode='lines',
+                        name='吸収スペクトル',
+                        line=dict(color='purple', width=2, dash='dash')
+                    ))
+                    
+                    # 透過率スペクトル
+                    fig.add_trace(go.Scatter(
+                        x=color_result['wavelength_range'],
+                        y=color_result['transmittance'],
+                        mode='lines',
+                        name='透過率',
+                        line=dict(color='black', width=2)
+                    ))
+                    
+                    # X, Y, Z等色関数（透過率と掛け合わせたもの）
+                    wavelength = color_result['wavelength_range']
+                    transmittance = np.array(color_result['transmittance'])
+                    
+                    # 各等色関数と透過率の掛け算
+                    xBar = np.array(color_result['xBar']) * transmittance
+                    yBar = np.array(color_result['yBar']) * transmittance
+                    zBar = np.array(color_result['zBar']) * transmittance
+                    
+                    fig.add_trace(go.Scatter(
+                        x=wavelength, y=xBar,
+                        mode='lines', name='X×透過率 (赤成分)',
+                        line=dict(color='red', width=1)
+                    ))
+                    
+                    fig.add_trace(go.Scatter(
+                        x=wavelength, y=yBar,
+                        mode='lines', name='Y×透過率 (緑成分)',
+                        line=dict(color='green', width=1)
+                    ))
+                    
+                    fig.add_trace(go.Scatter(
+                        x=wavelength, y=zBar,
+                        mode='lines', name='Z×透過率 (青成分)',
+                        line=dict(color='blue', width=1)
+                    ))
+                    
+                    # グラフのレイアウト設定
+                    fig.update_layout(
+                        title=f'分光透過率と等色関数 (倍率: {multiplier:.1f})',
+                        xaxis_title='波長 (nm)',
+                        yaxis_title='相対強度',
+                        legend=dict(x=0.02, y=0.98),
+                        margin=dict(l=0, r=0, t=40, b=0),
+                        # 波長範囲を明示的に380-780nmに固定
+                        xaxis=dict(range=[380, 780]),
+                        # 相対強度の範囲を0-1に設定
+                        yaxis=dict(range=[0, 1.05])
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # 色の意味に関する注意事項
+                st.info("""
+                **注意**: 表示されている色は計算された吸収スペクトルから推定されたものであり、実際の物質の色とは異なる場合があります。
+                溶媒や濃度、観察条件によって色の見え方は大きく変わることがあります。
+                """)
+                
+            else:
+                # 色計算失敗時のエラーメッセージ
+                st.error(f"色計算に失敗しました: {color_result.get('error', '不明なエラー')}")
             
         else:
             # 計算失敗時のエラーメッセージ表示
