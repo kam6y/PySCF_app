@@ -900,9 +900,9 @@ def show_tddft_tab(result):
                                    "xaxis": {"title": "Wavenumber (cm⁻¹)"}}]),
                     ]),
                     direction="down",
-                    pad={"r": 10, "t": 10},
+                    pad={"r": 1, "t": 10},
                     showactive=True,
-                    x=0.1,
+                    x=0.0,
                     xanchor="left",
                     y=1.1,
                     yanchor="top"
