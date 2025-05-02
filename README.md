@@ -128,6 +128,7 @@ Docker環境での並列計算を調整するには:
 - サイクルの回数を明記
 - ECP（Effective Core Potential : 有効内殻ポテンシャル）(金属錯体)
 - CASSCF/CASCI
+- UKSの実装
 - UVスペクトル可視化(TDDFT)のUI部分のデバッグ
 - 開発者向けに構造最適化をパスするルートを追加
 - 対称性の加味 symmetry=True ←PySCF側で実装が不十分な為、実装しない
