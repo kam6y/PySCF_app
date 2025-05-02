@@ -946,30 +946,15 @@ def show_tddft_tab(result):
             st.subheader("分子の色の可視化")
             st.markdown("""
             このセクションでは、計算された吸収スペクトルから分子の色を推定します。
-            スライダーを使用して吸光度の強度を調整できます。
+            吸光度の強度を調整して色の濃さを変更できます。
             """)
             
             # 初期値の設定（より適切な初期値を使用）
             if 'color_multiplier' not in st.session_state:
                 st.session_state['color_multiplier'] = 5.0  # デフォルト値を調整
             
-            # 吸光度強度調整用数値入力ボックス
-            multiplier = st.number_input(
-                '吸光度強度倍率:',
-                min_value=0.0,
-                max_value=30.0,
-                value=st.session_state['color_multiplier'],
-                step=0.1,
-                format="%.1f",
-                key=f'color_multiplier_input_{result_id:x}',
-                help='吸光度の強度を調整します。大きい値ほど色が濃くなります。小さい値では薄く、大きい値では濃くなります。'
-            )
-            
-            # セッションに保存
-            st.session_state['color_multiplier'] = multiplier
-            
             # 色計算の実行
-            color_result = calculate_molecule_color(tddft_result, multiplier=multiplier)
+            color_result = calculate_molecule_color(tddft_result, multiplier=st.session_state['color_multiplier'])
             
             if color_result.get('success', False):
                 # 2列レイアウト
@@ -978,6 +963,23 @@ def show_tddft_tab(result):
                 with col1:
                     # カラーパッチの表示
                     st.image(f"data:image/png;base64,{color_result['color_img']}", caption="推定色")
+                    
+                    # 吸光度強度調整用数値入力ボックス（col1内に配置）
+                    multiplier = st.number_input(
+                        '吸光度強度倍率:',
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=st.session_state['color_multiplier'],
+                        step=0.1,
+                        format="%.1f",
+                        key=f'color_multiplier_input_{result_id:x}',
+                        help='吸光度の強度を調整します。大きい値ほど色が濃くなります。小さい値では薄く、大きい値では濃くなります。'
+                    )
+                    
+                    # セッションに保存し、値が変わったらリロード
+                    if st.session_state['color_multiplier'] != multiplier:
+                        st.session_state['color_multiplier'] = multiplier
+                        st.rerun()  # UIを更新して色を再計算する
                     
                     # RGB値とHEX値の表示
                     rgb = color_result['rgb']
@@ -1038,7 +1040,7 @@ def show_tddft_tab(result):
                     
                     # グラフのレイアウト設定
                     fig.update_layout(
-                        title=f'分光透過率と等色関数 (倍率: {multiplier:.1f})',
+                        title=f'分光透過率と等色関数 (倍率: {st.session_state["color_multiplier"]:.1f})',
                         xaxis_title='波長 (nm)',
                         yaxis_title='相対強度',
                         legend=dict(x=0.02, y=0.98),
