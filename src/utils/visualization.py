@@ -82,12 +82,20 @@ def visualize_molecular_orbital(mol, mf, orbital_index, orbital_name):
             f"{atom_syms[i]} {atom_coords[i][0]:.6f} {atom_coords[i][1]:.6f} {atom_coords[i][2]:.6f}" for i in range(len(atom_syms))
         ])
         
+        # 軌道エネルギーと単位換算（ハートリー → eV）
+        hartree_to_ev = 27.2114
+        if orbital_index < len(mf.mo_energy):
+            orbital_energy = mf.mo_energy[orbital_index] * hartree_to_ev
+        else:
+            orbital_energy = 0.0
+            
         # py3Dmolで可視化
         view = py3Dmol.view(width=max, height=500)
         view.addModel(xyz_block, 'xyz')
         view.setStyle({'stick': {}})
         view.addVolumetricData(cube_data, 'cube', {'isoval': 0.02, 'color': 'red', 'opacity': 0.75})
         view.addVolumetricData(cube_data, 'cube', {'isoval': -0.02, 'color': 'blue', 'opacity': 0.75})
+        
         view.zoomTo()
         
         result['view'] = view
