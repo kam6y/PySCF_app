@@ -89,6 +89,7 @@ def main():
     # アプリ説明
     st.markdown("主に PySCF と Streamlit を使用")
     st.markdown("フィードバックフォームは[こちら](https://forms.gle/ZWS8CPQtHTWTPVvU7)")
+    st.markdown("動画版チュートリアル[こちら](https://youtu.be/q5NOIsv2zOs)")
     st.markdown("計算時間と精度は選択した計算設定に依存します。Streamlit Cloudを使用している場合、かなり弱いCPUで計算しているので計算設定がリッチだと計算が終わらずにエラーを吐く場合があります。")
     
     # チュートリアルページの追加
