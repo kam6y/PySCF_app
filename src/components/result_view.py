@@ -807,7 +807,8 @@ def show_tddft_tab(result):
                 y=df_spectral["Intensity"],
                 mode='lines',
                 name='eV',
-                line=dict(color='blue', width=2)
+                line=dict(color='blue', width=2),
+                visible=False
             ))
             
             # 各励起状態を縦線で表示（eV）
@@ -819,7 +820,8 @@ def show_tddft_tab(result):
                         mode='lines',
                         line=dict(color='red', width=1, dash='dash'),
                         name=f'State {int(row["State"])}',
-                        showlegend=False
+                        showlegend=False,
+                        visible=False
                     ))
             
             # nm単位のトレース
@@ -829,7 +831,7 @@ def show_tddft_tab(result):
                 mode='lines',
                 name='nm',
                 line=dict(color='green', width=2),
-                visible=False
+                visible=True
             ))
             
             # 各励起状態を縦線で表示（nm）
@@ -841,7 +843,7 @@ def show_tddft_tab(result):
                         mode='lines',
                         line=dict(color='red', width=1, dash='dash'),
                         showlegend=False,
-                        visible=False
+                        visible=True
                     ))
             
             # cm^-1単位のトレース
@@ -876,7 +878,7 @@ def show_tddft_tab(result):
             # 単位切り替えボタンを追加
             updatemenus = [
                 dict(
-                    active=0,
+                    active=1,
                     buttons=list([
                         dict(label="eV",
                             method="update",
@@ -911,8 +913,8 @@ def show_tddft_tab(result):
             
             # レイアウト設定
             fig.update_layout(
-                title="UV-Vis Spectrum (eV)",
-                xaxis_title="Excitation Energy (eV)",
+                title="UV-Vis Spectrum (nm)",
+                xaxis_title="Wavelength (nm)",
                 yaxis_title="Normalized Intensity",
                 updatemenus=updatemenus,
                 legend=dict(
@@ -1100,7 +1102,7 @@ def show_tddft_tab(result):
     else:
         # 計算前の状態
         st.info('「TDDFT計算を実行」ボタンをクリックすると、UV-Visスペクトル計算を実行します。')
-        st.warning('注意: TDDFT計算は計算負荷が高く、分子サイズや計算設定によっては数分～数十分かかる場合があります。')
+        st.warning('注意: TDDFT計算は計算負荷が高く、分子サイズや計算設定によっては数分～数日かかる場合があります。')
 
 
 # テスト実行用
