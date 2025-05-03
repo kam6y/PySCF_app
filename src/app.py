@@ -88,6 +88,7 @@ def main():
     
     # アプリ説明
     st.markdown("主に PySCF と Streamlit を使用")
+    st.markdown("フィードバックフォームは[こちら](https://forms.gle/ZWS8CPQtHTWTPVvU7)")
     st.markdown("計算時間と精度は選択した計算設定に依存します。Streamlit Cloudを使用している場合、かなり弱いCPUで計算しているので計算設定がリッチだと計算が終わらずにエラーを吐く場合があります。")
     
     # チュートリアルページの追加
@@ -227,13 +228,13 @@ def main():
         
         ### 簡単な例：水分子（H₂O）
         1. SMILES: "O" または PubChem: "water"
-        2. 基底関数: 6-31g
-        3. 汎関数: b3lyp
+        2. 基底関数: sto-3g
+        3. 汎関数: LDA
         4. 電荷: 0、スピン: 1
         
         ### 中程度の例：ベンゼン
         1. SMILES: "c1ccccc1" または PubChem: "benzene"
-        2. 基底関数: 6-31g(d)
+        2. 基底関数: 6-31g
         3. 汎関数: b3lyp
         4. 電荷: 0、スピン: 1
         
