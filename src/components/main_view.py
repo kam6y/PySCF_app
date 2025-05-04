@@ -68,6 +68,13 @@ def show_main_view(sidebar_values):
                             solvent_info_display = f"- 溶媒効果: **{solvent_model}** ({selected_solvent})"
                 
                 # 計算設定をボタン押下時に表示（計算実行前）
+                # 構造最適化スキップの設定も表示
+                optimization_info = ""
+                if sidebar_values.get('skip_optimization', False):
+                    optimization_info = "\n- 構造最適化: **スキップ（入力構造を使用）**"
+                else:
+                    optimization_info = ""
+                
                 calc_container.info(f"""
                 **計算設定:**
                 - 基底関数セット: **{basis_set}**
@@ -75,6 +82,7 @@ def show_main_view(sidebar_values):
                 - 電荷: {charge}
                 - スピン多重度: {spin}
                 {solvent_info_display}
+                {optimization_info}
                 """)
                 
                 # 溶媒設定を確認（内部処理用）
@@ -95,7 +103,8 @@ def show_main_view(sidebar_values):
                             charge, 
                             spin-1,
                             cpu_cores=cpu_cores,
-                            solvent_settings=sidebar_values.get('solvent_settings', None)
+                            solvent_settings=sidebar_values.get('solvent_settings', None),
+                            skip_optimization=sidebar_values.get('skip_optimization', False)
                         )
                         
                         st.session_state['dft_result'] = result
@@ -107,7 +116,10 @@ def show_main_view(sidebar_values):
                         st.session_state['auto_reflect_to_sidebar'] = True
                         
                         # 成功メッセージを表示（直接表示）
-                        calc_container.success(f'構造最適化計算が完了しました。XYZ座標をサイドバーに自動反映します。')
+                        if sidebar_values.get('skip_optimization', False):
+                            calc_container.success(f'DFT計算が完了しました（最適化スキップ）。XYZ座標をサイドバーに自動反映します。')
+                        else:
+                            calc_container.success(f'構造最適化計算が完了しました。XYZ座標をサイドバーに自動反映します。')
                         
                         # ページを再読み込み（streamlit 0.88.0以降の新しい方法）
                         st.rerun()

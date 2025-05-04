@@ -61,7 +61,7 @@ def save_xyz_file(atoms, coords, filename='molecule.xyz'):
             f.write(f"{atom} {coords[i][0]:.6f} {coords[i][1]:.6f} {coords[i][2]:.6f}\\n")
     return filepath
 
-def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_cores=None, solvent_settings=None):
+def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_cores=None, solvent_settings=None, skip_optimization=False):
     """PySCFを使用したDFT計算を実行"""
     # CPU並列数の設定
     if cpu_cores is None:
@@ -120,20 +120,27 @@ def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_c
     if solvent_settings and solvent_settings.get('enable_solvent', False):
         mf, solvent_message = apply_solvent_effects(mf, solvent_settings)
     
-    # SCFオブジェクトを渡して最適化
-    mol_opt = geomopt.optimize(mf, conv_params=conv_params)
-    
-    # 最適化後の計算
-    mf_opt = dft.RKS(mol_opt)
-    mf_opt.xc = xc_functional_normalized  # 正規化された汎関数名を使用
-    mf_opt.max_memory = total_memory
-    mf_opt.verbose = 0
-    
-    # 最適化後も同じ溶媒効果を適用
-    if solvent_settings and solvent_settings.get('enable_solvent', False):
-        mf_opt, _ = apply_solvent_effects(mf_opt, solvent_settings)
-    
-    energy = mf_opt.kernel()
+    # 構造最適化のスキップ判定
+    if skip_optimization:
+        # 構造最適化をスキップする場合、入力構造をそのまま使用
+        mol_opt = mol
+        mf_opt = mf  # 初期のmfをそのまま使用
+        energy = mf_opt.kernel()  # SCF計算のみ実行
+    else:
+        # 通常通り構造最適化を実行
+        mol_opt = geomopt.optimize(mf, conv_params=conv_params)
+        
+        # 最適化後の計算
+        mf_opt = dft.RKS(mol_opt)
+        mf_opt.xc = xc_functional_normalized  # 正規化された汎関数名を使用
+        mf_opt.max_memory = total_memory
+        mf_opt.verbose = 0
+        
+        # 最適化後も同じ溶媒効果を適用
+        if solvent_settings and solvent_settings.get('enable_solvent', False):
+            mf_opt, _ = apply_solvent_effects(mf_opt, solvent_settings)
+        
+        energy = mf_opt.kernel()
     
     # 分子軌道のエネルギー解析
     homo_idx = mol_opt.nelectron // 2 - 1
@@ -152,12 +159,19 @@ def run_dft_calculation(atoms, coords, basis, xc_functional, charge, spin, cpu_c
     # 電荷計算
     population = mf_opt.mulliken_pop()
     charges = population[1]
-    # 最適化後のxyz文字列を生成
+    # xyz文字列を生成（最適化の有無に応じてコメント行を変更）
     BOHR_TO_ANGSTROM = 0.529177210903
     atom_syms = [a[0] for a in mol_opt._atom]
     atom_coords = mol_opt.atom_coords() * BOHR_TO_ANGSTROM  # Bohr→Åに変換
     xyz_lines = [f"{atom_syms[i]} {atom_coords[i][0]:.6f} {atom_coords[i][1]:.6f} {atom_coords[i][2]:.6f}" for i in range(len(atom_syms))]
-    xyz_optimized = f"{len(atom_syms)}\nOptimized by PySCF\n" + "\n".join(xyz_lines)
+    
+    # 最適化の有無に応じてコメント行を変更
+    if skip_optimization:
+        comment_line = "Input structure (optimization skipped)"
+    else:
+        comment_line = "Optimized by PySCF"
+    
+    xyz_optimized = f"{len(atom_syms)}\n{comment_line}\n" + "\n".join(xyz_lines)
     
     # 溶媒設定も結果に含める
     solvent_info = None

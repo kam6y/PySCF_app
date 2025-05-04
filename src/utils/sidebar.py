@@ -322,6 +322,17 @@ def molecule_sidebar():
         """)
         st.markdown("---")
         
+        # 構造最適化スキップオプション
+        skip_optimization = st.checkbox(
+            '構造最適化をスキップ',
+            value=st.session_state.get('skip_optimization', False),
+            help='これを選択すると、入力された構造で直接計算を実行します。構造が既に最適化されている場合に使用できます。',
+            key='skip_optimization_checkbox'
+        )
+        st.session_state['skip_optimization'] = skip_optimization
+        
+        st.markdown("---")
+        
         # 並列計算設定
         available_cores = st.session_state.get('available_cpu_cores', 1)
         
@@ -363,5 +374,6 @@ def molecule_sidebar():
         'spin': spin,
         'cpu_cores': cpu_cores,  # CPU設定を追加
         'xyz_string': xyz_string,  # ここでサイドバーのテキストエリアの値を返す
-        'solvent_settings': solvent_settings  # 溶媒効果の設定を追加
+        'solvent_settings': solvent_settings,  # 溶媒効果の設定を追加
+        'skip_optimization': skip_optimization  # 最適化スキップオプションを追加
     }
